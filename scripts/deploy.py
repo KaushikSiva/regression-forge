@@ -40,7 +40,7 @@ def wait_ready(url: str, attempts: int = 60) -> None:
 
 def commit_for(release: str) -> str:
     completed = subprocess.run(
-        ["git", "-C", str(STORE_REPO), "rev-parse", f"release-{release}"],
+        ["git", "-C", str(STORE_REPO), "rev-parse", f"release-{release}^{{commit}}"],
         capture_output=True,
         text=True,
         check=False,
@@ -93,4 +93,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
