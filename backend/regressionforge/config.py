@@ -18,6 +18,7 @@ class Settings:
     signoz_ui_url: str = os.getenv("SIGNOZ_UI_URL", os.getenv("SIGNOZ_URL", ""))
     signoz_email: str = os.getenv("SIGNOZ_EMAIL", "")
     signoz_password: str = os.getenv("SIGNOZ_PASSWORD", "")
+    signoz_api_key: str = os.getenv("SIGNOZ_API_KEY", "")
     allow_local_otel_audit: bool = os.getenv("ALLOW_LOCAL_OTEL_AUDIT", "false").lower() == "true"
     glasskit_bin: str = os.getenv(
         "GLASSKIT_BIN", "/opt/glasskit/.venv/bin/glasskit"
@@ -27,6 +28,8 @@ class Settings:
     greptile_repo: str = os.getenv("GREPTILE_REPOSITORY", "")
     greptile_mcp_url: str = os.getenv("GREPTILE_MCP_URL", "https://api.greptile.com/mcp")
     claude_mem_url: str = os.getenv("CLAUDE_MEM_URL", "")
+    claude_mem_api_key: str = os.getenv("CLAUDE_MEM_API_KEY", "")
+    claude_mem_project_id: str = os.getenv("CLAUDE_MEM_PROJECT_ID", "")
     codex_enabled: bool = os.getenv("CODEX_ENABLED", "false").lower() == "true"
     codex_model: str = os.getenv("CODEX_MODEL", "gpt-5.6-terra")
     ci_webhook_token: str = os.getenv("REGRESSIONFORGE_CI_TOKEN", "")

@@ -1,5 +1,11 @@
 # Three-minute demo script
 
+For the hosted version, open the three PRs with
+`create-good-pr.sh`, `create-broken-pr.sh`, and `create-fixed-pr.sh` from the
+ForgeCart repository. The same presentation sequence then runs through GitHub
+Actions and the Render candidate deployment; no Mac-hosted service is involved.
+See [RENDER_CLOUD.md](RENDER_CLOUD.md).
+
 ## 0:00–0:35 — The claim
 
 Open the evidence room and ForgeCart. Say: “A green deploy should mean the customer journey, the API, and every promised side effect actually worked. RegressionForge produces that certificate.”
@@ -35,4 +41,3 @@ make deploy-fixed
 ```
 
 The fixed backend accepts both contracts. The identical workflow hash returns to `PASS`. Close with: “RegressionForge turns every deploy into an evidence-backed release decision.”
-

@@ -28,19 +28,18 @@ def test_string_list_accepts_one_or_many_structured_values():
     assert _string_list(None) == []
 
 
-def test_claude_mem_recall_uses_paginated_items(monkeypatch):
+def test_claude_mem_recall_uses_authenticated_server_v1(monkeypatch):
     class Response:
         def raise_for_status(self):
             return None
 
         def json(self):
             return {
-                "items": [
+                "observations": [
                     {
                         "id": 17,
-                        "title": "Passing ForgeCart baseline",
-                        "narrative": "Checkout, email, webhook, and logs passed.",
-                        "created_at": "2026-08-23T10:00:00Z",
+                        "content": '{"title":"Passing ForgeCart baseline","narrative":"Checkout, email, webhook, and logs passed."}',
+                        "createdAtEpoch": 1787504400000,
                     }
                 ]
             }
@@ -55,12 +54,21 @@ def test_claude_mem_recall_uses_paginated_items(monkeypatch):
         async def __aexit__(self, *_args):
             return None
 
-        async def get(self, _url: str, params: dict):
-            assert params["project"] == "RegressionForge"
+        async def post(self, url: str, headers: dict, json: dict):
+            assert url == "http://memory.test/v1/search"
+            assert headers == {"Authorization": "Bearer memory-secret"}
+            assert json["projectId"] == "project-17"
+            assert "platformSource" not in json
             return Response()
 
     monkeypatch.setattr("regressionforge.integrations.httpx.AsyncClient", Client)
-    client = ClaudeMemClient(SimpleNamespace(claude_mem_url="http://memory.test"))
+    client = ClaudeMemClient(
+        SimpleNamespace(
+            claude_mem_url="http://memory.test",
+            claude_mem_api_key="memory-secret",
+            claude_mem_project_id="project-17",
+        )
+    )
 
     matches, state = asyncio.run(client.recall("ForgeCart checkout baseline"))
 
@@ -68,7 +76,7 @@ def test_claude_mem_recall_uses_paginated_items(monkeypatch):
     assert matches[0].observation_id == "17"
 
 
-def test_claude_mem_save_uses_current_session_routes(monkeypatch):
+def test_claude_mem_save_uses_authenticated_server_memory_route(monkeypatch):
     calls: list[tuple[str, dict]] = []
 
     class Response:
@@ -85,12 +93,19 @@ def test_claude_mem_save_uses_current_session_routes(monkeypatch):
         async def __aexit__(self, *_args):
             return None
 
-        async def post(self, url: str, json: dict):
+        async def post(self, url: str, headers: dict, json: dict):
+            assert headers == {"Authorization": "Bearer memory-secret"}
             calls.append((url, json))
             return Response()
 
     monkeypatch.setattr("regressionforge.integrations.httpx.AsyncClient", Client)
-    client = ClaudeMemClient(SimpleNamespace(claude_mem_url="http://memory.test"))
+    client = ClaudeMemClient(
+        SimpleNamespace(
+            claude_mem_url="http://memory.test",
+            claude_mem_api_key="memory-secret",
+            claude_mem_project_id="project-17",
+        )
+    )
     run = RegressionRun(
         id="run_ci_test",
         project_id="prj_forgecart",
@@ -108,10 +123,7 @@ def test_claude_mem_save_uses_current_session_routes(monkeypatch):
     state = asyncio.run(client.save(run))
 
     assert state == "COMPLETE"
-    assert [url for url, _ in calls] == [
-        "http://memory.test/api/sessions/init",
-        "http://memory.test/api/sessions/observations",
-        "http://memory.test/api/sessions/summarize",
-    ]
-    assert calls[1][1]["contentSessionId"] == "run_ci_test"
-    assert "tool_response" in calls[1][1]
+    assert [url for url, _ in calls] == ["http://memory.test/v1/memories"]
+    assert calls[0][1]["projectId"] == "project-17"
+    assert calls[0][1]["metadata"]["runId"] == "run_ci_test"
+    assert '"gate": "PASS"' in calls[0][1]["content"]

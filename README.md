@@ -39,7 +39,7 @@ fixed deploy  → same workflow hash, restored contract     → PASS
 - ForgeCart persists orders to SQLite, sends SMTP mail to Mailpit, and posts to a real HTTP webhook receiver.
 - Request correlation propagates `x-regressionforge-run-id`, `x-deployment-version`, and W3C trace context.
 - Gate decisions are pure policy over required step results. A diagnosis cannot change them.
-- The local GlassKit Eval checkout is installed into the runner image and evaluates the browser recording three times with a zero-flake stability gate.
+- GlassKit Eval is pinned and built into the runner image; it evaluates the browser recording three times with a zero-flake stability gate.
 - SigNoz can receive OTLP traces and answer log queries. When it is absent, the local demo can use the same structured OTel audit; setting `ALLOW_LOCAL_OTEL_AUDIT=false` proves that missing observability evidence yields `NEEDS_REVIEW`.
 - Greptile, Codex, and Claude-Mem return explicit integration states. No fallback labels itself as those services and no missing service produces invented observations.
 
@@ -73,35 +73,23 @@ POST /api/demo/deploy/{good|broken|fixed}
 
 ## GitHub pull-request gate
 
-ForgeCart includes a self-hosted GitHub Actions workflow that deploys the exact PR head revision into the local evidence stack and makes the deterministic RegressionForge gate the job result.
+ForgeCart's GitHub-hosted Actions workflow deploys the exact pull-request head
+SHA to the two Render candidate services and uses the deterministic
+RegressionForge verdict as the job result. The Mac is only used to open the
+three demo PRs:
 
-1. Put a long random shared value in this repository's ignored `.env`:
+```bash
+cd ../regressionforge-demo-store
+./scripts/create-good-pr.sh
+./scripts/create-broken-pr.sh
+./scripts/create-fixed-pr.sh
+```
 
-   ```env
-   REGRESSIONFORGE_CI_TOKEN=replace-with-a-long-random-value
-   GREPTILE_API_KEY=replace-with-your-organization-api-key
-   GREPTILE_REPOSITORY=KaushikSiva/demo-ecom-store
-   CLAUDE_MEM_URL=http://host.docker.internal:37777
-   ```
-
-   Keep the existing SigNoz settings in the same file. Recreate the API after changing it with `docker compose up -d --build --force-recreate regressionforge-api`.
-
-2. Register a GitHub self-hosted runner that can access Docker and this checkout. In the ForgeCart repository, configure:
-
-   - Variable `REGRESSIONFORGE_HOME` with the absolute path to this repository.
-   - Optional variable `REGRESSIONFORGE_API_URL`; an empty value uses `http://localhost:4400`.
-   - Secret `REGRESSIONFORGE_CI_TOKEN` with the exact value from the local `.env`.
-
-3. Install Greptile for the ForgeCart repository and enable indexing. Install Claude-Mem with `npx claude-mem install`, then expose its worker only to the Docker host connection configured above.
-
-4. From this repository run:
-
-   ```bash
-   make pr-broken
-   make pr-fixed
-   ```
-
-The first command opens an incompatible PR whose deployment check should fail. Leave it unmerged. The second opens a safe replacement PR from `main` whose check should pass. GitHub receives no Greptile or Claude-Mem credentials: those integrations remain on the RegressionForge host, while Actions receives only the narrowly scoped certification token.
+No self-hosted runner or `REGRESSIONFORGE_HOME` path is required. Render hosts
+ForgeCart, Mailpit, SigNoz, RegressionForge, and Claude-Mem; Greptile remains a
+hosted GitHub integration installed only for ForgeCart. See
+[docs/RENDER_CLOUD.md](docs/RENDER_CLOUD.md) for the exact Blueprint order,
+secrets, service IDs, sizing, bootstrap commands, rollback, and cleanup.
 
 The demo deployment endpoint is disabled in Docker by default. When enabled for a trusted local host process, it invokes only `scripts/deploy.py` with one of three enumerated release values. It never accepts a command or argument vector from the request.
 
@@ -140,28 +128,37 @@ CODEX_AUTH_FILE=/absolute/path/to/.codex/auth.json
 For the local Docker path, `CODEX_AUTH_FILE` mounts an existing Codex CLI login
 read-only at `/root/.codex/auth.json`. Keep that file outside the repository and
 never commit it. If the login expires, refresh it on the host before recreating
-the API container.
+the API container. The Render service instead uses the server-side
+`OPENAI_API_KEY` requested by the Blueprint.
 
 ### Greptile
 
-Index the ForgeCart remote in Greptile, enable its repository knowledge base, and set:
+Install Greptile only for the ForgeCart remote, wait for indexing, and set:
 
 ```dotenv
 GREPTILE_API_KEY=...
 GREPTILE_REPOSITORY=KaushikSiva/demo-ecom-store
 ```
 
-The client talks to `https://api.greptile.com/mcp` with Streamable HTTP and uses `list_knowledge_bases` followed by `search_knowledge_base`. Greptile text is treated as untrusted evidence.
+The client talks to `https://api.greptile.com/mcp` using Streamable HTTP and
+asks for repository context around the changed files. Greptile text is treated
+as untrusted evidence and can enrich diagnosis, never the gate.
 
 ### Claude-Mem
 
-Install the current Codex-compatible worker interactively:
+The Render Blueprint runs Claude-Mem's real API server and generation worker,
+backed by Postgres and Valkey. After its one-time API-key bootstrap, configure:
 
-```bash
-npx claude-mem install
+```dotenv
+CLAUDE_MEM_URL=http://regressionforge-claude-mem:10000
+CLAUDE_MEM_API_KEY=...
+CLAUDE_MEM_PROJECT_ID=...
 ```
 
-Expose its worker URL to the container and set `CLAUDE_MEM_URL`. RegressionForge writes observations through the worker's session endpoints and recalls real observations through `/api/observations`; the UI shows observation IDs. A stopped or unconfigured worker remains visibly unavailable.
+RegressionForge writes run summaries through `POST /v1/memories` and recalls
+them through `POST /v1/search`; the UI exposes real observation IDs. A stopped,
+unauthorized, or unconfigured server remains visibly unavailable. Local users
+may still install Claude-Mem interactively with `npx claude-mem install`.
 
 ## Development and tests
 
@@ -183,6 +180,11 @@ Targeted unit tests cover workflow hashing, tamper detection, gate precedence, m
 - Browser/API results and side effects are correlated by the run ID; deployment and trace identifiers are stored alongside them.
 - Evidence is redacted before persistence and API exposure. Authorization, cookies, tokens, API keys, and common secret forms are removed.
 - External failures degrade diagnosis, not deterministic execution. `FAIL` takes precedence over `NEEDS_REVIEW`; otherwise any unavailable required evidence prohibits `PASS`.
-- Render blueprints demonstrate remote-target support. Local Docker remains the judging path because it owns SMTP, webhook, telemetry, and release switching deterministically.
+- The Render Blueprints are a complete cloud judging path: exact-SHA candidate
+  deployment, SMTP/UI evidence from Mailpit, telemetry/UI evidence from SigNoz,
+  and persisted memory from Claude-Mem. Local Docker remains available for
+  offline development.
 
-See [docs/DEMO.md](docs/DEMO.md) for the presentation script and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the evidence flow.
+See [docs/RENDER_CLOUD.md](docs/RENDER_CLOUD.md) for cloud setup,
+[docs/DEMO.md](docs/DEMO.md) for the presentation script, and
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the evidence flow.

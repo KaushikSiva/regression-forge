@@ -205,48 +205,99 @@ class GreptileClient:
 
 
 class ClaudeMemClient:
-    """Uses Claude-Mem's installed worker service; it never invents local memory."""
+    """Uses Claude-Mem's authenticated server API; it never invents local memory."""
 
     def __init__(self, settings: Settings):
         self.url = settings.claude_mem_url.rstrip("/")
+        self.api_key = getattr(settings, "claude_mem_api_key", "")
+        self.configured_project_id = getattr(settings, "claude_mem_project_id", "")
         self.project = "RegressionForge"
 
+    @property
+    def headers(self) -> dict[str, str]:
+        return {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
+
+    async def _project_id(self, client: httpx.AsyncClient) -> str:
+        if self.configured_project_id:
+            return self.configured_project_id
+        response = await client.get(f"{self.url}/v1/projects", headers=self.headers)
+        response.raise_for_status()
+        body = response.json()
+        projects = (
+            body
+            if isinstance(body, list)
+            else body.get("projects", body.get("items", []))
+        )
+        for project in projects:
+            if isinstance(project, dict) and project.get("name") == self.project:
+                return str(project["id"])
+        if len(projects) == 1 and isinstance(projects[0], dict) and projects[0].get("id"):
+            # Claude-Mem's bootstrap CLI issues a project-scoped key and lists
+            # only that project. Reuse it even when its bootstrap name differs.
+            return str(projects[0]["id"])
+        created = await client.post(
+            f"{self.url}/v1/projects",
+            headers=self.headers,
+            json={"name": self.project},
+        )
+        created.raise_for_status()
+        payload = created.json()
+        project = payload.get("project", payload)
+        return str(project["id"])
+
     async def recall(self, query: str) -> tuple[list[MemoryMatch], IntegrationState]:
-        if not self.url:
+        if not self.url or not self.api_key:
             return [], IntegrationState.NOT_CONFIGURED
         try:
             async with httpx.AsyncClient(timeout=8) as client:
-                response = await client.get(
-                    f"{self.url}/api/observations",
-                    params={"project": self.project, "limit": 20, "offset": 0},
+                project_id = await self._project_id(client)
+                response = await client.post(
+                    f"{self.url}/v1/search",
+                    headers=self.headers,
+                    json={
+                        "projectId": project_id,
+                        "query": query[:500],
+                        "limit": 5,
+                    },
                 )
                 response.raise_for_status()
                 body = response.json()
-                items = body.get("items", body.get("observations", []))
-            terms = {term.lower() for term in re.findall(r"[A-Za-z]{4,}", query)}
-            ranked = sorted(
-                items,
-                key=lambda item: sum(
-                    term in f"{item.get('title', '')} {item.get('narrative', '')}".lower()
-                    for term in terms
-                ),
-                reverse=True,
-            )[:5]
-            return [
-                MemoryMatch(
-                    observation_id=str(item.get("id")),
-                    title=item.get("title", "Historical observation"),
-                    narrative=item.get("narrative", ""),
-                    created_at=item.get("created_at"),
-                    relevance="keyword-ranked Claude-Mem observation",
+                items = body.get("observations", body.get("items", body.get("results", [])))
+            matches: list[MemoryMatch] = []
+            for item in items[:5]:
+                content = item.get("content", "")
+                decoded: dict[str, Any] = {}
+                if isinstance(content, str):
+                    try:
+                        parsed = json.loads(content)
+                        decoded = parsed if isinstance(parsed, dict) else {}
+                    except json.JSONDecodeError:
+                        pass
+                matches.append(
+                    MemoryMatch(
+                        observation_id=str(item.get("id")),
+                        title=decoded.get(
+                            "title",
+                            item.get("title", f"Certified deployment {decoded.get('gate', 'observation')}"),
+                        ),
+                        narrative=decoded.get(
+                            "narrative",
+                            content if isinstance(content, str) else json.dumps(content, default=str),
+                        ),
+                        created_at=(
+                            str(item.get("createdAtEpoch"))
+                            if item.get("createdAtEpoch") is not None
+                            else item.get("createdAt", item.get("created_at"))
+                        ),
+                        relevance="Claude-Mem full-text search match",
+                    )
                 )
-                for item in ranked
-            ], IntegrationState.COMPLETE
+            return matches, IntegrationState.COMPLETE
         except Exception:
             return [], IntegrationState.UNAVAILABLE
 
     async def save(self, run: RegressionRun) -> IntegrationState:
-        if not self.url:
+        if not self.url or not self.api_key:
             return IntegrationState.NOT_CONFIGURED
         summary = {
             "run_id": run.id,
@@ -259,37 +310,36 @@ class ClaudeMemClient:
         }
         try:
             async with httpx.AsyncClient(timeout=12) as client:
-                init = await client.post(
-                    f"{self.url}/api/sessions/init",
+                project_id = await self._project_id(client)
+                memory = await client.post(
+                    f"{self.url}/v1/memories",
+                    headers=self.headers,
                     json={
-                        "contentSessionId": run.id,
-                        "project": self.project,
-                        "prompt": f"Certify deployment run {run.id}",
-                        "platformSource": "regressionforge",
-                        "customTitle": f"RegressionForge {summary['gate']} {run.id}",
+                        "projectId": project_id,
+                        "kind": "deployment-certification",
+                        "content": json.dumps(
+                            redact(
+                                {
+                                    **summary,
+                                    "title": f"RegressionForge {summary['gate']} {run.id}",
+                                    "narrative": (
+                                        f"Deployment certification {run.id} finished with gate "
+                                        f"{summary['gate']}; failed steps: "
+                                        f"{', '.join(summary['failed_steps']) or 'none'}."
+                                    ),
+                                }
+                            ),
+                            sort_keys=True,
+                        ),
+                        "metadata": {
+                            "runId": run.id,
+                            "gate": str(summary["gate"]),
+                            "workflowVersionId": run.workflow_version_id,
+                            "platformSource": "regressionforge",
+                        },
                     },
                 )
-                init.raise_for_status()
-                observation = await client.post(
-                    f"{self.url}/api/sessions/observations",
-                    json={
-                        "contentSessionId": run.id,
-                        "tool_name": "RegressionForge deployment gate",
-                        "tool_input": {"workflow_version_id": run.workflow_version_id},
-                        "tool_response": redact(summary),
-                        "platformSource": "regressionforge",
-                    },
-                )
-                observation.raise_for_status()
-                summarized = await client.post(
-                    f"{self.url}/api/sessions/summarize",
-                    json={
-                        "contentSessionId": run.id,
-                        "last_assistant_message": json.dumps(redact(summary), sort_keys=True),
-                        "platformSource": "regressionforge",
-                    },
-                )
-                summarized.raise_for_status()
+                memory.raise_for_status()
             return IntegrationState.COMPLETE
         except Exception:
             return IntegrationState.UNAVAILABLE
@@ -391,6 +441,7 @@ class SignozClient:
         self.allow_local = settings.allow_local_otel_audit
         self.email = settings.signoz_email
         self.password = settings.signoz_password
+        self.api_key = getattr(settings, "signoz_api_key", "")
 
     async def access_token(self, client: httpx.AsyncClient) -> str:
         if not self.email or not self.password:
@@ -444,11 +495,16 @@ class SignozClient:
             }
             try:
                 async with httpx.AsyncClient(timeout=15) as client:
-                    token = await self.access_token(client)
+                    headers: dict[str, str]
+                    if self.api_key:
+                        headers = {"SIGNOZ-API-KEY": self.api_key}
+                    else:
+                        token = await self.access_token(client)
+                        headers = {"Authorization": f"Bearer {token}"}
                     response = await client.post(
                         f"{self.signoz_url}/api/v5/query_range",
                         json=body,
-                        headers={"Authorization": f"Bearer {token}"},
+                        headers=headers,
                     )
                     response.raise_for_status()
                     payload = redact(response.json())

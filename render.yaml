@@ -1,29 +1,194 @@
+databases:
+  - name: regressionforge-claude-mem-postgres
+    databaseName: claudemem
+    user: claudemem
+    plan: basic-256mb
+    postgresMajorVersion: "17"
+    region: oregon
+    ipAllowList: []
+
 services:
+  - type: pserv
+    name: regressionforge-claude-mem-valkey
+    runtime: image
+    plan: starter
+    region: oregon
+    image:
+      url: valkey/valkey:8.1.3-alpine
+    dockerCommand: valkey-server --appendonly yes --appendfsync everysec --maxmemory-policy noeviction
+    disk:
+      name: regressionforge-claude-mem-valkey-data
+      mountPath: /data
+      sizeGB: 1
+
+  - type: web
+    name: regressionforge-claude-mem
+    runtime: docker
+    plan: standard
+    region: oregon
+    dockerContext: .
+    dockerfilePath: integrations/claude-mem/Dockerfile
+    healthCheckPath: /healthz
+    envVars:
+      - key: CLAUDE_MEM_CONTAINER_MODE
+        value: server
+      - key: CLAUDE_MEM_DOCKER
+        value: "1"
+      - key: CLAUDE_MEM_RUNTIME
+        value: server-beta
+      - key: CLAUDE_MEM_HOST
+        value: 0.0.0.0
+      - key: CLAUDE_MEM_SERVER_HOST
+        value: 0.0.0.0
+      - key: CLAUDE_MEM_SERVER_PORT
+        value: "10000"
+      - key: CLAUDE_MEM_WORKER_HOST
+        value: 0.0.0.0
+      - key: CLAUDE_MEM_WORKER_PORT
+        value: "10000"
+      - key: CLAUDE_MEM_DATA_DIR
+        value: /data/claude-mem
+      - key: CLAUDE_MEM_QUEUE_ENGINE
+        value: bullmq
+      - key: CLAUDE_MEM_REDIS_URL
+        value: redis://regressionforge-claude-mem-valkey:6379
+      - key: CLAUDE_MEM_VALKEY_HOST
+        fromService:
+          name: regressionforge-claude-mem-valkey
+          type: pserv
+          property: host
+      - key: CLAUDE_MEM_REDIS_MODE
+        value: docker
+      - key: CLAUDE_MEM_SERVER_DATABASE_URL
+        fromDatabase:
+          name: regressionforge-claude-mem-postgres
+          property: connectionString
+      - key: CLAUDE_MEM_AUTH_MODE
+        value: api-key
+      - key: CLAUDE_MEM_CHROMA_ENABLED
+        value: "false"
+      - key: CLAUDE_MEM_GENERATION_DISABLED
+        value: "true"
+
+  - type: worker
+    name: regressionforge-claude-mem-worker
+    runtime: docker
+    plan: standard
+    region: oregon
+    dockerContext: .
+    dockerfilePath: integrations/claude-mem/Dockerfile
+    envVars:
+      - key: CLAUDE_MEM_CONTAINER_MODE
+        value: worker
+      - key: CLAUDE_MEM_DOCKER
+        value: "1"
+      - key: CLAUDE_MEM_RUNTIME
+        value: server-beta
+      - key: CLAUDE_MEM_DATA_DIR
+        value: /data/claude-mem
+      - key: CLAUDE_MEM_QUEUE_ENGINE
+        value: bullmq
+      - key: CLAUDE_MEM_REDIS_URL
+        value: redis://regressionforge-claude-mem-valkey:6379
+      - key: CLAUDE_MEM_VALKEY_HOST
+        fromService:
+          name: regressionforge-claude-mem-valkey
+          type: pserv
+          property: host
+      - key: CLAUDE_MEM_REDIS_MODE
+        value: docker
+      - key: CLAUDE_MEM_SERVER_DATABASE_URL
+        fromDatabase:
+          name: regressionforge-claude-mem-postgres
+          property: connectionString
+      - key: CLAUDE_MEM_AUTH_MODE
+        value: api-key
+      - key: CLAUDE_MEM_CHROMA_ENABLED
+        value: "false"
+      - key: CLAUDE_MEM_SERVER_PROVIDER
+        value: claude
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: CLAUDE_MEM_SERVER_HOST_DEPENDENCY
+        fromService:
+          name: regressionforge-claude-mem
+          type: web
+          property: host
+
   - type: web
     name: regressionforge-api
     runtime: docker
     rootDir: backend
+    plan: standard
+    region: oregon
+    healthCheckPath: /health
     envVars:
       - key: REGRESSIONFORGE_DATA
         value: /data
       - key: REGRESSIONFORGE_ARTIFACTS
         value: /data/artifacts
-      - key: ALLOW_LOCAL_OTEL_AUDIT
-        value: "false"
       - key: PUBLIC_API_URL
         sync: false
+      - key: EVIDENCE_ROOM_URL
+        sync: false
       - key: FORGECART_STOREFRONT_URL
-        sync: false
+        value: http://forgecart-storefront:80
       - key: FORGECART_API_URL
+        value: http://forgecart-api:8000
+      - key: MAILPIT_API_URL
+        value: http://forgecart-mailpit:10000
+      - key: OTEL_EXPORTER_OTLP_ENDPOINT
+        value: http://signoz-ingester-0:4318
+      - key: SIGNOZ_URL
+        value: http://signoz-signoz-0:8080
+      - key: SIGNOZ_UI_URL
+        value: http://signoz-signoz-0:8080
+      - key: SIGNOZ_API_KEY
         sync: false
+      - key: SIGNOZ_EMAIL
+        sync: false
+      - key: SIGNOZ_PASSWORD
+        sync: false
+      - key: ALLOW_LOCAL_OTEL_AUDIT
+        value: "false"
+      - key: GLASSKIT_BIN
+        value: /usr/local/bin/glasskit
+      - key: GLASSKIT_ENABLED
+        value: "true"
+      - key: GREPTILE_API_KEY
+        sync: false
+      - key: GREPTILE_REPOSITORY
+        value: KaushikSiva/demo-ecom-store
+      - key: CLAUDE_MEM_URL
+        value: http://regressionforge-claude-mem:10000
+      - key: CLAUDE_MEM_API_KEY
+        sync: false
+      - key: CLAUDE_MEM_PROJECT_ID
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: CODEX_ENABLED
+        value: "true"
+      - key: CODEX_MODEL
+        value: gpt-5.6-terra
+      - key: REGRESSIONFORGE_CI_TOKEN
+        sync: false
+      - key: ENABLE_DEMO_DEPLOYMENTS
+        value: "false"
+      - key: TARGET_REPOSITORY
+        value: /workspace/regressionforge-demo-store
     disk:
       name: regressionforge-data
       mountPath: /data
-      sizeGB: 2
+      sizeGB: 5
+
   - type: web
     name: regressionforge-evidence-room
     runtime: docker
     rootDir: frontend
+    plan: starter
+    region: oregon
+    healthCheckPath: /
     buildFilter:
       paths:
         - frontend/**

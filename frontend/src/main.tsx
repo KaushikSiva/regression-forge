@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import type { Artifact, Overview, Run, StepResult } from "./types";
 import "./styles.css";
 
-const API = import.meta.env.VITE_API_URL || "http://localhost:4400";
+const API = import.meta.env.VITE_API_URL || "";
 
 const statusTone = (status?: string) => {
   if (status === "PASS" || status === "PASSED") return "pass";
@@ -20,8 +20,28 @@ function ArtifactImage({ artifact, label }: { artifact?: Artifact; label: string
   return <img src={artifact.url} alt={label} />;
 }
 
-function CompareStage({ current, baseline }: { current?: Artifact; baseline?: Artifact }) {
+const FULL_EVIDENCE_STEPS = new Set([
+  "submit-checkout",
+  "order-confirmed",
+  "order-api",
+  "confirmation-email",
+  "fulfillment-webhook",
+  "signoz-errors",
+]);
+
+function CompareStage({ current, baseline, compare }: { current?: Artifact; baseline?: Artifact; compare: boolean }) {
   const [reveal, setReveal] = useState(54);
+  if (!compare) {
+    return (
+      <section className="compare-stage evidence-stage">
+        <div className="stage-labels"><span>Current run evidence</span><span>{String(current?.metadata.surface || "captured artifact")}</span></div>
+        <div className="compare-canvas evidence-canvas">
+          <div className="evidence-image"><ArtifactImage artifact={current} label="Current run evidence" /></div>
+        </div>
+        <div className="stage-caption single-caption"><span>{current ? current.label : "No current screenshot"}</span></div>
+      </section>
+    );
+  }
   return (
     <section className="compare-stage">
       <div className="stage-labels"><span>Last certified</span><span>Current deployment</span></div>
@@ -216,6 +236,7 @@ function App() {
   const runScreens = run?.evidence.filter((artifact) => artifact.kind === "screenshot" && !artifact.metadata.proof_overlay) || [];
   const stepScreens = runScreens.filter((artifact) => !selectedStep || artifact.step_id === selectedStep);
   const currentScreenshot = stepScreens.at(-1) || runScreens.filter((artifact) => artifact.step_id === "order-confirmed").at(-1) || runScreens.at(-1);
+  const compareScreens = !selectedStep || !FULL_EVIDENCE_STEPS.has(selectedStep);
   const [baselineArtifacts, setBaselineArtifacts] = useState<Artifact[]>([]);
   useEffect(() => {
     if (!run?.baseline_run_id) { setBaselineArtifacts([]); return; }
@@ -228,7 +249,7 @@ function App() {
   return (
     <main className={`app-shell tone-${statusTone(gate)}`}>
       <header>
-        <div className="brand"><span className="brand-mark">RF</span><strong>RegressionForge</strong><small>Release certification / local</small></div>
+        <div className="brand"><span className="brand-mark">RF</span><strong>RegressionForge</strong><small>Release certification / evidence</small></div>
         <div className="run-meta"><span>Workflow <b>{short(run?.workflow_version_id, 18)}</b></span><span>Run <b>{short(run?.id, 16)}</b></span><span>Trace <b>{short(run?.trace_id, 16)}</b></span></div>
         <div className={`gate ${statusTone(gate)}`}><small>Deployment gate</small><strong>{gate}</strong><i /></div>
       </header>
@@ -248,7 +269,7 @@ function App() {
       {!run ? <EmptyRoom onRun={() => startRun("dep_forgecart_good")} busy={busy} /> : <>
         <div className="workbench">
           <Timeline run={run} selected={selectedStep} onSelect={setSelectedStep} />
-          <CompareStage current={currentScreenshot} baseline={baselineScreenshot} />
+          <CompareStage current={currentScreenshot} baseline={baselineScreenshot} compare={compareScreens} />
           <EvidenceInspector run={run} step={selected} payloads={payloads} />
         </div>
         <MemoryRail run={run} />
