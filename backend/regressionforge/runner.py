@@ -45,6 +45,66 @@ class EvidenceUnavailable(RuntimeError):
     pass
 
 
+EVIDENCE_SCREENSHOT_STEPS = {
+    "submit-checkout": "HTTP EXCHANGE",
+    "order-confirmed": "BROWSER ASSERTION",
+    "order-api": "PUBLIC API RESPONSE",
+    "fulfillment-webhook": "FULFILLMENT WEBHOOK",
+    "signoz-errors": "SIGNOZ / CORRELATED LOGS",
+}
+
+
+EVIDENCE_SCREEN_SCRIPT = """
+(payload) => {
+  document.getElementById("regressionforge-evidence-screen")?.remove();
+  const screen = document.createElement("section");
+  screen.id = "regressionforge-evidence-screen";
+  Object.assign(screen.style, {
+    position: "fixed", inset: "0", zIndex: "2147483647", overflow: "hidden",
+    padding: "46px 54px", background: "#0b0e0c", color: "#e8ece5",
+    fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace"
+  });
+  const top = document.createElement("div");
+  Object.assign(top.style, { display: "flex", alignItems: "center", justifyContent: "space-between", paddingBottom: "25px", borderBottom: "1px solid #293029" });
+  const brand = document.createElement("span");
+  brand.textContent = "REGRESSIONFORGE / EVIDENCE";
+  Object.assign(brand.style, { color: "#879087", fontSize: "11px", letterSpacing: ".16em" });
+  const status = document.createElement("strong");
+  status.textContent = payload.status;
+  Object.assign(status.style, { color: payload.color, fontSize: "12px", letterSpacing: ".14em" });
+  top.append(brand, status);
+
+  const kind = document.createElement("p");
+  kind.textContent = payload.kind;
+  Object.assign(kind.style, { margin: "42px 0 12px", color: payload.color, fontSize: "11px", letterSpacing: ".14em" });
+  const title = document.createElement("h1");
+  title.textContent = payload.name;
+  Object.assign(title.style, { margin: "0", maxWidth: "980px", color: "#f5f7f2", fontFamily: "system-ui, sans-serif", fontSize: "48px", fontWeight: "500", lineHeight: "1.05", letterSpacing: "-.04em" });
+  const summary = document.createElement("p");
+  summary.textContent = payload.summary;
+  Object.assign(summary.style, { margin: "18px 0 34px", color: "#aab2a9", fontFamily: "system-ui, sans-serif", fontSize: "16px", lineHeight: "1.5" });
+
+  const evidence = document.createElement("pre");
+  evidence.textContent = payload.evidence;
+  Object.assign(evidence.style, {
+    margin: "0", height: "470px", overflow: "hidden", padding: "26px 30px",
+    borderTop: `1px solid ${payload.color}`, borderBottom: "1px solid #293029",
+    background: "#101411", color: "#c9d0c7", whiteSpace: "pre-wrap",
+    wordBreak: "break-word", fontSize: "12px", lineHeight: "1.6"
+  });
+  const footer = document.createElement("div");
+  Object.assign(footer.style, { display: "flex", justifyContent: "space-between", marginTop: "24px", color: "#697269", fontSize: "10px", letterSpacing: ".08em" });
+  const correlation = document.createElement("span");
+  correlation.textContent = `RUN ${payload.runId}  /  ${payload.stepType}`;
+  const source = document.createElement("span");
+  source.textContent = payload.source;
+  footer.append(correlation, source);
+  screen.append(top, kind, title, summary, evidence, footer);
+  document.body.append(screen);
+}
+"""
+
+
 class RunBroker:
     def __init__(self, store: Store):
         self.store = store
@@ -268,7 +328,8 @@ class Runner:
                 result.summary = str(exc)
 
             capture_mailbox = step.id == "confirmation-email"
-            if page is not None and (step.type in browser_types or capture_mailbox):
+            capture_evidence = step.id in EVIDENCE_SCREENSHOT_STEPS
+            if page is not None and (step.type in browser_types or capture_mailbox or capture_evidence):
                 try:
                     if capture_mailbox:
                         await page.goto(self.settings.mailpit_api_url, wait_until="networkidle")
@@ -276,26 +337,59 @@ class Runner:
                         await search.fill(run.id)
                         await search.press("Enter")
                         await page.wait_for_timeout(350)
+                    elif capture_evidence:
+                        evidence = self._step_evidence_payload(step, result, run, writer)
+                        await page.evaluate(
+                            EVIDENCE_SCREEN_SCRIPT,
+                            {
+                                "kind": EVIDENCE_SCREENSHOT_STEPS[step.id],
+                                "name": step.name,
+                                "status": str(result.status),
+                                "summary": result.summary,
+                                "stepType": str(step.type),
+                                "runId": run.id,
+                                "source": evidence["source"],
+                                "color": "#a8e63d" if result.status == ResultStatus.PASSED else (
+                                    "#e0b95b" if result.status == ResultStatus.NEEDS_REVIEW else "#ff6846"
+                                ),
+                                "evidence": json.dumps(evidence["payload"], indent=2, ensure_ascii=False, default=str)[:10000],
+                            },
+                        )
                     screenshot_path = writer.run_dir / f"{len(run.step_results):02d}-{step.id}.png"
                     await page.screenshot(path=str(screenshot_path), full_page=True)
                     artifact = writer.artifact(
                         kind="screenshot",
                         label=(
                             f"Mailpit mailbox for {run.id} — {result.status}"
-                            if capture_mailbox else f"{step.name} — {result.status}"
+                            if capture_mailbox else (
+                                f"{EVIDENCE_SCREENSHOT_STEPS[step.id]} for {run.id} — {result.status}"
+                                if capture_evidence else f"{step.name} — {result.status}"
+                            )
                         ),
                         step_id=step.id,
                         path=screenshot_path,
                         mime_type="image/png",
                         metadata={
                             "status": result.status,
-                            "surface": "mailpit" if capture_mailbox else "forgecart",
+                            "surface": "mailpit" if capture_mailbox else (
+                                "signoz" if step.id == "signoz-errors" else (
+                                    "evidence" if capture_evidence else "forgecart"
+                                )
+                            ),
                         },
                     )
                     run.evidence.append(artifact)
                     result.evidence_ids.append(artifact.id)
                 except Exception:
                     pass
+                finally:
+                    if capture_evidence:
+                        try:
+                            await page.evaluate(
+                                'document.getElementById("regressionforge-evidence-screen")?.remove()'
+                            )
+                        except Exception:
+                            pass
             for step_artifact in run.evidence:
                 if step_artifact.step_id == step.id and step_artifact.id not in result.evidence_ids:
                     result.evidence_ids.append(step_artifact.id)
@@ -391,6 +485,36 @@ class Runner:
                 )
             )
         self.store.save("run", run)
+
+    def _step_evidence_payload(
+        self,
+        step: WorkflowStep,
+        result: StepResult,
+        run: RegressionRun,
+        writer: ArtifactWriter,
+    ) -> dict[str, Any]:
+        artifacts: list[dict[str, Any]] = []
+        sources: list[str] = []
+        for artifact in run.evidence:
+            if artifact.step_id != step.id:
+                continue
+            item: dict[str, Any] = {"kind": artifact.kind, "label": artifact.label}
+            if artifact.path:
+                path = writer.run_dir.parent / artifact.path
+                if path.exists() and artifact.mime_type == "application/json":
+                    try:
+                        item["data"] = json.loads(path.read_text(encoding="utf-8"))
+                    except (json.JSONDecodeError, OSError):
+                        item["data"] = {"status": "artifact unreadable"}
+            artifacts.append(item)
+            sources.append(artifact.kind)
+        payload = redact({
+            "expected": result.expected,
+            "observed": result.actual,
+            "artifacts": artifacts,
+        })
+        source = " + ".join(sources) if sources else "deterministic browser evidence"
+        return {"payload": payload, "source": source.upper()}
 
     async def _execute_step(
         self,
