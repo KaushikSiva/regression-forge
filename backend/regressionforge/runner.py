@@ -253,6 +253,7 @@ class Runner:
                 browser = await playwright.chromium.launch(headless=True)
                 context = await browser.new_context(
                     viewport={"width": 1440, "height": 920},
+                    locale="en-US",
                     record_video_dir=str(video_dir),
                     record_video_size={"width": 1440, "height": 920},
                     extra_http_headers={
@@ -330,6 +331,7 @@ class Runner:
             capture_mailbox = step.id == "confirmation-email"
             capture_evidence = step.id in EVIDENCE_SCREENSHOT_STEPS
             if page is not None and (step.type in browser_types or capture_mailbox or capture_evidence):
+                screenshot_surface = "forgecart"
                 try:
                     if capture_mailbox:
                         await page.goto(self.settings.mailpit_api_url, wait_until="networkidle")
@@ -337,6 +339,13 @@ class Runner:
                         await search.fill(run.id)
                         await search.press("Enter")
                         await page.wait_for_timeout(350)
+                        screenshot_surface = "mailpit"
+                    elif step.id == "signoz-errors":
+                        screenshot_path = writer.run_dir / f"{len(run.step_results):02d}-{step.id}.png"
+                        await self._capture_signoz_ui(
+                            browser, run, deployment, screenshot_path
+                        )
+                        screenshot_surface = "signoz-ui"
                     elif capture_evidence:
                         evidence = self._step_evidence_payload(step, result, run, writer)
                         await page.evaluate(
@@ -355,8 +364,10 @@ class Runner:
                                 "evidence": json.dumps(evidence["payload"], indent=2, ensure_ascii=False, default=str)[:10000],
                             },
                         )
+                        screenshot_surface = "evidence"
                     screenshot_path = writer.run_dir / f"{len(run.step_results):02d}-{step.id}.png"
-                    await page.screenshot(path=str(screenshot_path), full_page=True)
+                    if screenshot_surface != "signoz-ui":
+                        await page.screenshot(path=str(screenshot_path), full_page=True)
                     artifact = writer.artifact(
                         kind="screenshot",
                         label=(
@@ -371,17 +382,43 @@ class Runner:
                         mime_type="image/png",
                         metadata={
                             "status": result.status,
-                            "surface": "mailpit" if capture_mailbox else (
-                                "signoz" if step.id == "signoz-errors" else (
-                                    "evidence" if capture_evidence else "forgecart"
-                                )
-                            ),
+                            "surface": screenshot_surface,
                         },
                     )
                     run.evidence.append(artifact)
                     result.evidence_ids.append(artifact.id)
                 except Exception:
-                    pass
+                    if step.id == "signoz-errors":
+                        try:
+                            evidence = self._step_evidence_payload(step, result, run, writer)
+                            await page.evaluate(
+                                EVIDENCE_SCREEN_SCRIPT,
+                                {
+                                    "kind": "SIGNOZ UI UNAVAILABLE",
+                                    "name": step.name,
+                                    "status": str(result.status),
+                                    "summary": "The real SigNoz Logs Explorer could not be captured.",
+                                    "stepType": str(step.type),
+                                    "runId": run.id,
+                                    "source": evidence["source"],
+                                    "color": "#e0b95b",
+                                    "evidence": json.dumps(evidence["payload"], indent=2, ensure_ascii=False, default=str)[:10000],
+                                },
+                            )
+                            screenshot_path = writer.run_dir / f"{len(run.step_results):02d}-{step.id}.png"
+                            await page.screenshot(path=str(screenshot_path), full_page=True)
+                            artifact = writer.artifact(
+                                kind="screenshot",
+                                label=f"SigNoz UI unavailable for {run.id} — {result.status}",
+                                step_id=step.id,
+                                path=screenshot_path,
+                                mime_type="image/png",
+                                metadata={"status": result.status, "surface": "signoz-unavailable"},
+                            )
+                            run.evidence.append(artifact)
+                            result.evidence_ids.append(artifact.id)
+                        except Exception:
+                            pass
                 finally:
                     if capture_evidence:
                         try:
@@ -515,6 +552,108 @@ class Runner:
         })
         source = " + ".join(sources) if sources else "deterministic browser evidence"
         return {"payload": payload, "source": source.upper()}
+
+    @staticmethod
+    def _error_log_count(logs: dict[str, Any]) -> int:
+        records: list[dict[str, Any]] = []
+        if logs.get("source") == "signoz":
+            results = (
+                logs.get("result", {})
+                .get("data", {})
+                .get("data", {})
+                .get("results", [])
+            )
+            for query_result in results:
+                records.extend(
+                    row.get("data", {})
+                    for row in query_result.get("rows", [])
+                    if isinstance(row, dict)
+                )
+        else:
+            records = [
+                record for record in logs.get("records", []) if isinstance(record, dict)
+            ]
+
+        count = 0
+        for record in records:
+            body: Any = record.get("body", record)
+            if isinstance(body, str):
+                try:
+                    body = json.loads(body)
+                except json.JSONDecodeError:
+                    body = {"message": body}
+            body = body if isinstance(body, dict) else {}
+            severity = str(
+                record.get("severity_text", body.get("severity", ""))
+            ).upper()
+            event = str(body.get("event", "")).lower()
+            status = str(body.get("status", "")).lower()
+            if severity == "ERROR" or "contract_error" in event or event.endswith("_failed") or status == "error":
+                count += 1
+        return count
+
+    async def _capture_signoz_ui(
+        self,
+        browser: Any,
+        run: RegressionRun,
+        deployment: Deployment,
+        screenshot_path: Path,
+    ) -> None:
+        """Capture the real Logs Explorer without leaking credentials into the run trace."""
+        if not browser or not self.settings.signoz_ui_url:
+            raise RuntimeError("SigNoz UI is not configured")
+        if not self.settings.signoz_email or not self.settings.signoz_password:
+            raise RuntimeError("SigNoz UI credentials are not configured")
+
+        context = await browser.new_context(
+            viewport={"width": 1440, "height": 920},
+            locale="en-US",
+        )
+        signoz_page = await context.new_page()
+        signoz_page.set_default_timeout(12000)
+        base_url = self.settings.signoz_ui_url.rstrip("/")
+        explorer_url = f"{base_url}/logs/logs-explorer"
+        try:
+            await signoz_page.goto(explorer_url, wait_until="domcontentloaded")
+            await signoz_page.wait_for_timeout(500)
+            next_button = signoz_page.get_by_role("button", name=re.compile(r"^Next$", re.I))
+            if "/login" in signoz_page.url or await next_button.count():
+                await signoz_page.locator("input").first.fill(self.settings.signoz_email)
+                await next_button.click()
+                password = signoz_page.locator("input").last
+                await password.wait_for(state="visible")
+                await signoz_page.wait_for_timeout(300)
+                await password.fill(self.settings.signoz_password)
+                await password.press("Tab")
+                submit = signoz_page.get_by_test_id("password_authn_submit")
+                for _ in range(20):
+                    if await submit.is_enabled():
+                        break
+                    await signoz_page.wait_for_timeout(100)
+                await submit.click()
+                await signoz_page.wait_for_url(lambda url: "/login" not in url, timeout=15000)
+
+            await signoz_page.goto(
+                explorer_url,
+                wait_until="networkidle",
+                timeout=20000,
+            )
+            okay = signoz_page.get_by_role("button", name=re.compile(r"^Okay$", re.I))
+            if await okay.count() and await okay.first.is_visible():
+                await okay.first.click()
+
+            editor = signoz_page.locator("[contenteditable='true']").first
+            await editor.wait_for(state="visible")
+            safe_run_id = re.sub(r"[^a-zA-Z0-9_.:-]", "", run.id)
+            safe_version = re.sub(r"[^a-zA-Z0-9_.:-]", "", deployment.version)
+            await editor.fill(
+                f"regression.run_id = '{safe_run_id}' AND deployment.version = '{safe_version}'"
+            )
+            await signoz_page.get_by_role("button", name=re.compile(r"^Run Query$", re.I)).click()
+            await signoz_page.wait_for_timeout(1800)
+            await signoz_page.screenshot(path=str(screenshot_path), full_page=True)
+        finally:
+            await context.close()
 
     async def _execute_step(
         self,
@@ -700,8 +839,7 @@ class Runner:
             run.evidence.append(artifact)
             if not available:
                 raise EvidenceUnavailable("Required SigNoz/log evidence was unavailable; PASS is prohibited")
-            serialized = json.dumps(logs).lower()
-            error_count = sum(serialized.count(marker) for marker in ['"severity": "error"', "contract_error", '"status": "error"'])
+            error_count = self._error_log_count(logs)
             maximum = int(config.get("maximum_errors", 0))
             if error_count > maximum:
                 raise StepFailure(f"Found {error_count} correlated error log signals", maximum, logs)

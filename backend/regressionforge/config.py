@@ -15,7 +15,10 @@ class Settings:
     mailpit_api_url: str = os.getenv("MAILPIT_API_URL", "http://localhost:8025")
     otlp_endpoint: str = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
     signoz_url: str = os.getenv("SIGNOZ_URL", "")
-    allow_local_otel_audit: bool = os.getenv("ALLOW_LOCAL_OTEL_AUDIT", "true").lower() == "true"
+    signoz_ui_url: str = os.getenv("SIGNOZ_UI_URL", os.getenv("SIGNOZ_URL", ""))
+    signoz_email: str = os.getenv("SIGNOZ_EMAIL", "")
+    signoz_password: str = os.getenv("SIGNOZ_PASSWORD", "")
+    allow_local_otel_audit: bool = os.getenv("ALLOW_LOCAL_OTEL_AUDIT", "false").lower() == "true"
     glasskit_bin: str = os.getenv(
         "GLASSKIT_BIN", "/opt/glasskit/.venv/bin/glasskit"
     )
@@ -35,4 +38,3 @@ class Settings:
 settings = Settings()
 settings.data_dir.mkdir(parents=True, exist_ok=True)
 settings.artifacts_dir.mkdir(parents=True, exist_ok=True)
-

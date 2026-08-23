@@ -60,7 +60,16 @@ def main() -> int:
         environment["FORGECART_RELEASE"] = args.release
         environment["FORGECART_DEPLOYMENT_VERSION"] = release["version"]
         completed = subprocess.run(
-            ["docker", "compose", "up", "-d", "--build", "--force-recreate", "forgecart-api"],
+            [
+                "docker",
+                "compose",
+                "up",
+                "-d",
+                "--build",
+                "--force-recreate",
+                "--no-deps",
+                "forgecart-api",
+            ],
             cwd=ROOT,
             env=environment,
             check=False,

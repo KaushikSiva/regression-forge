@@ -29,9 +29,12 @@ services:
       FORGECART_API_URL: http://forgecart-api:8000
       MAILPIT_API_URL: http://mailpit:8025
       TARGET_REPOSITORY: /workspace/regressionforge-demo-store
-      ALLOW_LOCAL_OTEL_AUDIT: ${ALLOW_LOCAL_OTEL_AUDIT:-true}
-      SIGNOZ_URL: ${SIGNOZ_URL:-}
-      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      ALLOW_LOCAL_OTEL_AUDIT: ${ALLOW_LOCAL_OTEL_AUDIT:-false}
+      SIGNOZ_URL: ${SIGNOZ_URL:-http://host.docker.internal:8080}
+      SIGNOZ_UI_URL: ${SIGNOZ_UI_URL:-http://host.docker.internal:8080}
+      SIGNOZ_EMAIL: ${SIGNOZ_EMAIL:-}
+      SIGNOZ_PASSWORD: ${SIGNOZ_PASSWORD:-}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://host.docker.internal:4318}
       GREPTILE_API_KEY: ${GREPTILE_API_KEY:-}
       GREPTILE_REPOSITORY: ${GREPTILE_REPOSITORY:-}
       CLAUDE_MEM_URL: ${CLAUDE_MEM_URL:-}
@@ -69,7 +72,7 @@ services:
       SMTP_HOST: mailpit
       SMTP_PORT: 1025
       FULFILLMENT_WEBHOOK_URL: http://regressionforge-api:8000/api/webhooks/fulfillment
-      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://host.docker.internal:4318}
     volumes:
       - forgecart-data:/data
     depends_on:

@@ -284,6 +284,33 @@ class SignozClient:
         self.signoz_url = settings.signoz_url.rstrip("/")
         self.store_api = settings.store_api_url.rstrip("/")
         self.allow_local = settings.allow_local_otel_audit
+        self.email = settings.signoz_email
+        self.password = settings.signoz_password
+
+    async def access_token(self, client: httpx.AsyncClient) -> str:
+        if not self.email or not self.password:
+            raise RuntimeError("SigNoz credentials are not configured")
+        context = await client.get(
+            f"{self.signoz_url}/api/v2/sessions/context",
+            params={"email": self.email, "ref": self.signoz_url},
+        )
+        context.raise_for_status()
+        organizations = context.json().get("data", {}).get("orgs", [])
+        if not organizations:
+            raise RuntimeError("SigNoz did not return an organization for the configured user")
+        session = await client.post(
+            f"{self.signoz_url}/api/v2/sessions/email_password",
+            json={
+                "email": self.email,
+                "password": self.password,
+                "orgId": organizations[0]["id"],
+            },
+        )
+        session.raise_for_status()
+        token = session.json().get("data", {}).get("accessToken", "")
+        if not token:
+            raise RuntimeError("SigNoz login did not return an access token")
+        return token
 
     async def query(self, run_id: str, deployment_version: str) -> tuple[dict, bool]:
         if self.signoz_url:
@@ -312,7 +339,12 @@ class SignozClient:
             }
             try:
                 async with httpx.AsyncClient(timeout=15) as client:
-                    response = await client.post(f"{self.signoz_url}/api/v5/query_range", json=body)
+                    token = await self.access_token(client)
+                    response = await client.post(
+                        f"{self.signoz_url}/api/v5/query_range",
+                        json=body,
+                        headers={"Authorization": f"Bearer {token}"},
+                    )
                     response.raise_for_status()
                     payload = redact(response.json())
                 return {"source": "signoz", "query": body["compositeQuery"], "result": payload}, True
