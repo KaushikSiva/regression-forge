@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: regressionforge-api
+    runtime: docker
+    rootDir: backend
+    envVars:
+      - key: REGRESSIONFORGE_DATA
+        value: /data
+      - key: REGRESSIONFORGE_ARTIFACTS
+        value: /data/artifacts
+      - key: ALLOW_LOCAL_OTEL_AUDIT
+        value: "false"
+      - key: PUBLIC_API_URL
+        sync: false
+      - key: FORGECART_STOREFRONT_URL
+        sync: false
+      - key: FORGECART_API_URL
+        sync: false
+    disk:
+      name: regressionforge-data
+      mountPath: /data
+      sizeGB: 2
+  - type: web
+    name: regressionforge-evidence-room
+    runtime: docker
+    rootDir: frontend
+    buildFilter:
+      paths:
+        - frontend/**

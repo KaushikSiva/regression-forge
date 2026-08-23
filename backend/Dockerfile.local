@@ -1,0 +1,18 @@
+FROM mcr.microsoft.com/playwright/python:v1.54.0-noble
+
+WORKDIR /app
+ARG REGRESSIONFORGE_DEPS_REV=2
+RUN test -n "$REGRESSIONFORGE_DEPS_REV"
+COPY requirements.txt .
+COPY --from=glasskit . /opt/glasskit
+RUN pip install --no-cache-dir -r requirements.txt && pip install --no-cache-dir -e /opt/glasskit
+ARG REGRESSIONFORGE_SOURCE_REV=2
+RUN test -n "$REGRESSIONFORGE_SOURCE_REV"
+COPY regressionforge ./regressionforge
+RUN mkdir -p /data /artifacts
+
+ENV REGRESSIONFORGE_DATA=/data
+ENV REGRESSIONFORGE_ARTIFACTS=/artifacts
+ENV GLASSKIT_BIN=/usr/local/bin/glasskit
+EXPOSE 8000
+CMD ["uvicorn", "regressionforge.main:app", "--host", "0.0.0.0", "--port", "8000"]

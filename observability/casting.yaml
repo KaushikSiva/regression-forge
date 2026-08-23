@@ -1,0 +1,9 @@
+apiVersion: v1alpha1
+kind: Installation
+metadata:
+  name: regressionforge-signoz
+spec:
+  deployment:
+    flavor: compose
+    mode: docker
+

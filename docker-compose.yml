@@ -1,0 +1,94 @@
+name: regressionforge
+
+services:
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 3s
+      timeout: 2s
+      retries: 20
+
+  regressionforge-api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.local
+      additional_contexts:
+        glasskit: ../GlassKit/cli
+    init: true
+    ports:
+      - "4400:8000"
+    environment:
+      REGRESSIONFORGE_DATA: /data
+      REGRESSIONFORGE_ARTIFACTS: /artifacts
+      PUBLIC_API_URL: http://localhost:4400
+      FORGECART_STOREFRONT_URL: http://forgecart-web
+      FORGECART_API_URL: http://forgecart-api:8000
+      MAILPIT_API_URL: http://mailpit:8025
+      TARGET_REPOSITORY: /workspace/regressionforge-demo-store
+      ALLOW_LOCAL_OTEL_AUDIT: ${ALLOW_LOCAL_OTEL_AUDIT:-true}
+      SIGNOZ_URL: ${SIGNOZ_URL:-}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      GREPTILE_API_KEY: ${GREPTILE_API_KEY:-}
+      GREPTILE_REPOSITORY: ${GREPTILE_REPOSITORY:-}
+      CLAUDE_MEM_URL: ${CLAUDE_MEM_URL:-}
+      CODEX_ENABLED: ${CODEX_ENABLED:-false}
+      CODEX_MODEL: ${CODEX_MODEL:-gpt-5.6-terra}
+      ENABLE_DEMO_DEPLOYMENTS: "false"
+    volumes:
+      - regressionforge-data:/data
+      - regressionforge-artifacts:/artifacts
+      - ../regressionforge-demo-store:/workspace/regressionforge-demo-store:ro
+    depends_on:
+      mailpit:
+        condition: service_healthy
+
+  regressionforge-web:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: http://localhost:4400
+    ports:
+      - "4410:80"
+    depends_on:
+      - regressionforge-api
+
+  forgecart-api:
+    build:
+      context: ../regressionforge-demo-store/backend
+    init: true
+    ports:
+      - "4301:8000"
+    environment:
+      FORGECART_RELEASE: ${FORGECART_RELEASE:-good}
+      DEPLOYMENT_VERSION: ${FORGECART_DEPLOYMENT_VERSION:-forgecart-good}
+      FORGECART_DB: /data/forgecart.db
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
+      FULFILLMENT_WEBHOOK_URL: http://regressionforge-api:8000/api/webhooks/fulfillment
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+    volumes:
+      - forgecart-data:/data
+    depends_on:
+      mailpit:
+        condition: service_healthy
+      regressionforge-api:
+        condition: service_started
+
+  forgecart-web:
+    build:
+      context: ../regressionforge-demo-store/frontend
+      args:
+        VITE_API_URL: ""
+    ports:
+      - "4310:80"
+    depends_on:
+      - forgecart-api
+
+volumes:
+  regressionforge-data:
+  regressionforge-artifacts:
+  forgecart-data:
