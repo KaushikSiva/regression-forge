@@ -103,18 +103,23 @@ Wait for every service to become healthy. `forgecart-api` and
 `forgecart-storefront` deliberately have automatic deploys disabled because
 GitHub Actions promotes an exact PR SHA into this shared candidate environment.
 
-## 4. Bootstrap SigNoz once
+## 4. Verify the provisioned SigNoz root user
 
-Open the public URL for `signoz-signoz-0` and create the first organization and
-user. In SigNoz organization settings, create an API key.
+The ForgeCart Blueprint provisions the first organization and root user from
+`SIGNOZ_USER_ROOT_EMAIL` and `SIGNOZ_USER_ROOT_PASSWORD`. It also requires a
+random `SIGNOZ_TOKENIZER_JWT_SECRET`; keep all three values out of source
+control. Open the public URL for `signoz-signoz-0` and sign in with those root
+credentials.
 
-Update these variables on `regressionforge-api` and deploy it again:
+Set the same login credentials on `regressionforge-api` and deploy it again:
 
 ```text
-SIGNOZ_API_KEY=<SigNoz API key>
 SIGNOZ_EMAIL=<SigNoz login email>
 SIGNOZ_PASSWORD=<SigNoz login password>
 ```
+
+`SIGNOZ_API_KEY` is optional. Without it, RegressionForge obtains a short-lived
+session token from the configured root credentials before querying logs.
 
 The API key is used for the deterministic log query. The email and password
 are used only inside a separate Playwright context to capture the real SigNoz
