@@ -80,7 +80,7 @@ ForgeCart includes a self-hosted GitHub Actions workflow that deploys the exact 
    ```env
    REGRESSIONFORGE_CI_TOKEN=replace-with-a-long-random-value
    GREPTILE_API_KEY=replace-with-your-organization-api-key
-   GREPTILE_REPOSITORY=owner/regressionforge-demo-store
+   GREPTILE_REPOSITORY=KaushikSiva/demo-ecom-store
    CLAUDE_MEM_URL=http://host.docker.internal:37777
    ```
 
@@ -134,7 +134,13 @@ RegressionForge uses the official Python Codex SDK (`openai-codex`) and `Sandbox
 ```dotenv
 CODEX_ENABLED=true
 CODEX_MODEL=gpt-5.6-terra
+CODEX_AUTH_FILE=/absolute/path/to/.codex/auth.json
 ```
+
+For the local Docker path, `CODEX_AUTH_FILE` mounts an existing Codex CLI login
+read-only at `/root/.codex/auth.json`. Keep that file outside the repository and
+never commit it. If the login expires, refresh it on the host before recreating
+the API container.
 
 ### Greptile
 
@@ -142,7 +148,7 @@ Index the ForgeCart remote in Greptile, enable its repository knowledge base, an
 
 ```dotenv
 GREPTILE_API_KEY=...
-GREPTILE_REPOSITORY=owner/regressionforge-demo-store
+GREPTILE_REPOSITORY=KaushikSiva/demo-ecom-store
 ```
 
 The client talks to `https://api.greptile.com/mcp` with Streamable HTTP and uses `list_knowledge_bases` followed by `search_knowledge_base`. Greptile text is treated as untrusted evidence.

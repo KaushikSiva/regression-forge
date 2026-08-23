@@ -3,7 +3,12 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
-from regressionforge.integrations import ClaudeMemClient, _mcp_tool_data, _review_ids
+from regressionforge.integrations import (
+    ClaudeMemClient,
+    _mcp_tool_data,
+    _review_ids,
+    _string_list,
+)
 from regressionforge.models import GateDecision, GateStatus, RegressionRun
 
 
@@ -15,6 +20,12 @@ def test_mcp_tool_data_prefers_structured_content():
 
 def test_review_ids_uses_current_greptile_shape():
     assert _review_ids({"codeReviews": [{"id": "review_123"}]}) == ["review_123"]
+
+
+def test_string_list_accepts_one_or_many_structured_values():
+    assert _string_list("Inspect the checkout request.") == ["Inspect the checkout request."]
+    assert _string_list(["one", "two", None, 3]) == ["one", "two"]
+    assert _string_list(None) == []
 
 
 def test_claude_mem_recall_uses_paginated_items(monkeypatch):

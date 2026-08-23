@@ -47,6 +47,7 @@ services:
       - regressionforge-data:/data
       - regressionforge-artifacts:/artifacts
       - ${FORGECART_SOURCE_DIR:-../regressionforge-demo-store}:/workspace/regressionforge-demo-store:ro
+      - ${CODEX_AUTH_FILE:-/dev/null}:/root/.codex/auth.json:ro
     depends_on:
       mailpit:
         condition: service_healthy
