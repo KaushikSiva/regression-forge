@@ -15,6 +15,13 @@ const statusTone = (status?: string) => {
 const short = (value?: string, length = 10) => value ? value.slice(0, length) : "—";
 const formatDuration = (ms = 0) => ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.round(ms)}ms`;
 
+function rememberRun(runId: string) {
+  const url = new URL(window.location.href);
+  if (url.searchParams.get("run") === runId) return;
+  url.searchParams.set("run", runId);
+  window.history.replaceState({}, "", url);
+}
+
 function ArtifactImage({ artifact, label }: { artifact?: Artifact; label: string }) {
   if (!artifact?.url) return <div className="image-empty">{label}<span>No screenshot evidence</span></div>;
   return <img src={artifact.url} alt={label} />;
@@ -188,13 +195,22 @@ function App() {
     setOverview(nextOverview);
     const nextRun = runResponse?.ok ? await runResponse.json() as Run : nextOverview.latest_run;
     setRun(nextRun);
-    if (nextRun && !selectedStep) setSelectedStep(nextRun.step_results.find((step) => step.status === "FAILED")?.step_id || nextRun.step_results.at(-1)?.step_id);
+    if (nextRun) {
+      rememberRun(nextRun.id);
+      if (!selectedStep) setSelectedStep(nextRun.step_results.find((step) => step.status === "FAILED")?.step_id || nextRun.step_results.at(-1)?.step_id);
+    }
   }, [selectedStep]);
 
   useEffect(() => {
     const requestedRun = new URLSearchParams(window.location.search).get("run") || undefined;
     refresh(requestedRun).catch((error) => setMessage(error.message));
   }, []);
+
+  useEffect(() => {
+    if (run) return;
+    const timer = window.setInterval(() => refresh().catch((error) => setMessage(error.message)), 5000);
+    return () => window.clearInterval(timer);
+  }, [run, refresh]);
 
   useEffect(() => {
     if (!run || run.completed_at) return;
