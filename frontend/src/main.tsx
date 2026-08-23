@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
-import type { Artifact, Deployment, Overview, Run, StepResult } from "./types";
+import type { Artifact, Overview, Run, StepResult } from "./types";
 import "./styles.css";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:4400";
@@ -153,7 +153,6 @@ function EmptyRoom({ onRun, busy }: { onRun: () => void; busy: boolean }) {
 function App() {
   const [overview, setOverview] = useState<Overview>();
   const [run, setRun] = useState<Run>();
-  const [deploymentId, setDeploymentId] = useState("dep_forgecart_good");
   const [selectedStep, setSelectedStep] = useState<string>();
   const [payloads, setPayloads] = useState<Record<string, unknown>>({});
   const [busy, setBusy] = useState(false);
@@ -193,10 +192,14 @@ function App() {
   }, [run?.evidence.length, run?.id]);
 
   async function startRun(forceDeployment?: string) {
-    const selected = forceDeployment || deploymentId;
+    const deploymentId = forceDeployment || run?.deployment_id || overview?.deployments.at(0)?.id;
+    if (!deploymentId) {
+      setMessage("No deployment is available to certify.");
+      return;
+    }
     setBusy(true); setMessage("");
     try {
-      const response = await fetch(`${API}/api/runs`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ deployment_id: selected }) });
+      const response = await fetch(`${API}/api/runs`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ deployment_id: deploymentId }) });
       const body = await response.json();
       if (!response.ok) throw new Error(body.detail || "Run could not start");
       setSelectedStep(undefined);
@@ -205,7 +208,7 @@ function App() {
     finally { setBusy(false); }
   }
 
-  const deployment = overview?.deployments.find((item) => item.id === run?.deployment_id) || overview?.deployments.find((item) => item.id === deploymentId);
+  const deployment = overview?.deployments.find((item) => item.id === run?.deployment_id) || overview?.deployments.at(0);
   const selected = run?.step_results.find((step) => step.step_id === selectedStep);
   const runScreens = run?.evidence.filter((artifact) => artifact.kind === "screenshot" && !artifact.metadata.proof_overlay) || [];
   const stepScreens = runScreens.filter((artifact) => !selectedStep || artifact.step_id === selectedStep);
@@ -233,9 +236,6 @@ function App() {
         <div><label>Commit</label><strong>{deployment?.commit_sha || "—"}</strong></div>
         <div><label>Environment</label><strong>{deployment?.environment || "local"}</strong></div>
         <div className="deploy-actions">
-          <select value={deploymentId} onChange={(event) => setDeploymentId(event.target.value)} aria-label="Deployment">
-            {overview?.deployments.map((item: Deployment) => <option key={item.id} value={item.id}>{item.version}</option>)}
-          </select>
           <button onClick={() => startRun()} disabled={busy || run?.status === "RUNNING"}>{busy ? "Queuing…" : "Run certification"}<span>↗</span></button>
         </div>
       </section>
