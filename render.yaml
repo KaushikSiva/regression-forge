@@ -189,6 +189,19 @@ services:
     plan: starter
     region: oregon
     healthCheckPath: /
+    envVars:
+      - key: API_SCHEME
+        value: http
+      - key: API_HOST
+        fromService:
+          name: regressionforge-api
+          type: web
+          property: host
+      - key: API_PORT
+        fromService:
+          name: regressionforge-api
+          type: web
+          property: port
     buildFilter:
       paths:
         - frontend/**
