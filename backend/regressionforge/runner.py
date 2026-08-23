@@ -45,6 +45,57 @@ class EvidenceUnavailable(RuntimeError):
     pass
 
 
+PROOF_SCREENSHOT_STEPS = {
+    "submit-checkout",
+    "order-confirmed",
+    "order-api",
+    "confirmation-email",
+    "fulfillment-webhook",
+    "signoz-errors",
+}
+
+
+PROOF_OVERLAY_SCRIPT = """
+(payload) => {
+  document.getElementById("regressionforge-proof-overlay")?.remove();
+  const panel = document.createElement("section");
+  panel.id = "regressionforge-proof-overlay";
+  Object.assign(panel.style, {
+    position: "fixed", inset: "0 0 0 auto", width: "43vw", minWidth: "520px",
+    zIndex: "2147483647", padding: "48px", overflow: "hidden",
+    background: "rgba(11, 13, 12, 0.97)", color: "#e8eae5",
+    borderLeft: `2px solid ${payload.color}`, boxShadow: "-32px 0 80px rgba(0,0,0,.28)",
+    fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace"
+  });
+  const kicker = document.createElement("p");
+  kicker.textContent = `REGRESSIONFORGE / CHECK ${payload.index}`;
+  Object.assign(kicker.style, { margin: "0 0 34px", color: "#7f877e", fontSize: "11px", letterSpacing: ".16em" });
+  const status = document.createElement("strong");
+  status.textContent = payload.status;
+  Object.assign(status.style, { display: "block", color: payload.color, fontSize: "13px", letterSpacing: ".12em", marginBottom: "14px" });
+  const title = document.createElement("h1");
+  title.textContent = payload.name;
+  Object.assign(title.style, { margin: "0 0 18px", color: "#f4f6f1", fontFamily: "system-ui, sans-serif", fontSize: "36px", lineHeight: "1.08", letterSpacing: "-.035em" });
+  const summary = document.createElement("p");
+  summary.textContent = payload.summary;
+  Object.assign(summary.style, { margin: "0 0 32px", color: "#aeb5ac", fontFamily: "system-ui, sans-serif", fontSize: "15px", lineHeight: "1.55" });
+  const rule = document.createElement("div");
+  Object.assign(rule.style, { height: "1px", background: "#30352f", marginBottom: "28px" });
+  const label = document.createElement("p");
+  label.textContent = "CORRELATED EVIDENCE";
+  Object.assign(label.style, { margin: "0 0 12px", color: "#667066", fontSize: "10px", letterSpacing: ".14em" });
+  const evidence = document.createElement("pre");
+  evidence.textContent = payload.evidence;
+  Object.assign(evidence.style, { margin: "0", maxHeight: "48vh", overflow: "hidden", color: "#c9cec7", whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: "11px", lineHeight: "1.55" });
+  const footer = document.createElement("p");
+  footer.textContent = `RUN ${payload.runId}  /  ${payload.stepType}`;
+  Object.assign(footer.style, { position: "absolute", left: "48px", bottom: "38px", margin: "0", color: "#626a62", fontSize: "10px", letterSpacing: ".08em" });
+  panel.append(kicker, status, title, summary, rule, label, evidence, footer);
+  document.body.append(panel);
+}
+"""
+
+
 class RunBroker:
     def __init__(self, store: Store):
         self.store = store
@@ -267,8 +318,34 @@ class Runner:
                 result.status = ResultStatus.ERROR
                 result.summary = str(exc)
 
-            if page is not None and step.type in browser_types:
+            if page is not None:
+                proof_overlay = step.id in PROOF_SCREENSHOT_STEPS
                 try:
+                    if proof_overlay:
+                        step_evidence = [
+                            artifact.label for artifact in run.evidence if artifact.step_id == step.id
+                        ]
+                        proof = {
+                            "index": str(len(run.step_results)).zfill(2),
+                            "name": step.name,
+                            "status": str(result.status),
+                            "summary": result.summary,
+                            "stepType": str(step.type),
+                            "runId": run.id,
+                            "color": "#a8e63d" if result.status == ResultStatus.PASSED else (
+                                "#e0b95b" if result.status == ResultStatus.NEEDS_REVIEW else "#ff6846"
+                            ),
+                            "evidence": json.dumps(
+                                redact({
+                                    "expected": result.expected,
+                                    "actual": result.actual,
+                                    "artifacts": step_evidence,
+                                }),
+                                indent=2,
+                                default=str,
+                            )[:6000],
+                        }
+                        await page.evaluate(PROOF_OVERLAY_SCRIPT, proof)
                     screenshot_path = writer.run_dir / f"{len(run.step_results):02d}-{step.id}.png"
                     await page.screenshot(path=str(screenshot_path), full_page=True)
                     artifact = writer.artifact(
@@ -277,12 +354,20 @@ class Runner:
                         step_id=step.id,
                         path=screenshot_path,
                         mime_type="image/png",
-                        metadata={"status": result.status},
+                        metadata={"status": result.status, "proof_overlay": proof_overlay},
                     )
                     run.evidence.append(artifact)
                     result.evidence_ids.append(artifact.id)
                 except Exception:
                     pass
+                finally:
+                    if proof_overlay:
+                        try:
+                            await page.evaluate(
+                                'document.getElementById("regressionforge-proof-overlay")?.remove()'
+                            )
+                        except Exception:
+                            pass
             for step_artifact in run.evidence:
                 if step_artifact.step_id == step.id and step_artifact.id not in result.evidence_ids:
                     result.evidence_ids.append(step_artifact.id)

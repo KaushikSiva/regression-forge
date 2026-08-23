@@ -201,13 +201,15 @@ function App() {
   const deployment = overview?.deployments.find((item) => item.id === run?.deployment_id) || overview?.deployments.find((item) => item.id === deploymentId);
   const selected = run?.step_results.find((step) => step.step_id === selectedStep);
   const stepScreens = run?.evidence.filter((artifact) => artifact.kind === "screenshot" && (!selectedStep || artifact.step_id === selectedStep)) || [];
-  const currentScreenshot = stepScreens.at(-1) || run?.evidence.filter((artifact) => artifact.kind === "screenshot").at(-1);
+  // Never borrow another check's screenshot. Older runs without step-specific
+  // proof should say so instead of presenting the confirmation screen again.
+  const currentScreenshot = stepScreens.at(-1);
   const [baselineArtifacts, setBaselineArtifacts] = useState<Artifact[]>([]);
   useEffect(() => {
     if (!run?.baseline_run_id) { setBaselineArtifacts([]); return; }
     fetch(`${API}/api/runs/${run.id}/evidence`).then((response) => response.json()).then((data) => setBaselineArtifacts(data.baseline_artifacts || [])).catch(() => setBaselineArtifacts([]));
   }, [run?.id, run?.baseline_run_id]);
-  const baselineScreenshot = baselineArtifacts.filter((artifact) => artifact.kind === "screenshot" && artifact.step_id === (selectedStep || "order-confirmed")).at(-1) || baselineArtifacts.filter((artifact) => artifact.kind === "screenshot").at(-1);
+  const baselineScreenshot = baselineArtifacts.filter((artifact) => artifact.kind === "screenshot" && artifact.step_id === (selectedStep || "order-confirmed")).at(-1);
   const gate = run?.gate?.status || (run?.status === "RUNNING" ? "RUNNING" : "PENDING");
 
   return (
@@ -246,4 +248,3 @@ function App() {
 }
 
 createRoot(document.getElementById("root")!).render(<React.StrictMode><App /></React.StrictMode>);
-
