@@ -75,9 +75,11 @@ function JsonBlock({ value }: { value: unknown }) {
 
 function EvidenceInspector({ run, step, payloads }: { run?: Run; step?: StepResult; payloads: Record<string, unknown> }) {
   const [tab, setTab] = useState("failure");
-  const network = run?.network_events.find((event) => Number(event.status) >= 400) || run?.network_events.at(-1);
-  const signoz = run?.evidence.find((item) => item.kind === "signoz");
   const source = run?.evidence.find((item) => item.kind === "source");
+  const stepArtifacts = run?.evidence.filter((item) =>
+    step?.evidence_ids.includes(item.id) && item.kind !== "screenshot"
+  ) || [];
+  useEffect(() => setTab("failure"), [step?.step_id]);
   return (
     <aside className="inspector">
       <div className="inspector-tabs">
@@ -93,9 +95,14 @@ function EvidenceInspector({ run, step, payloads }: { run?: Run; step?: StepResu
             <h2>{step?.step_name || "Select a workflow step"}</h2>
             <p>{step?.summary || "Evidence captured by the selected check will appear here."}</p>
           </div>
-          {network && <div className="evidence-block"><label>Network exchange</label><JsonBlock value={network} /></div>}
-          {signoz && <div className="evidence-block"><label>{signoz.label}</label><JsonBlock value={payloads[signoz.id] || signoz.metadata} /></div>}
+          {stepArtifacts.map((artifact) => (
+            <div className="evidence-block" key={artifact.id}>
+              <label>{artifact.label}</label>
+              <JsonBlock value={payloads[artifact.id] || artifact.metadata} />
+            </div>
+          ))}
           {step?.actual !== undefined && <div className="evidence-block"><label>Observed</label><JsonBlock value={step.actual} /></div>}
+          {!stepArtifacts.length && step?.actual === undefined && <p className="empty-copy">This check did not produce a structured evidence payload.</p>}
         </div>
       )}
 
@@ -200,16 +207,16 @@ function App() {
 
   const deployment = overview?.deployments.find((item) => item.id === run?.deployment_id) || overview?.deployments.find((item) => item.id === deploymentId);
   const selected = run?.step_results.find((step) => step.step_id === selectedStep);
-  const stepScreens = run?.evidence.filter((artifact) => artifact.kind === "screenshot" && (!selectedStep || artifact.step_id === selectedStep)) || [];
-  // Never borrow another check's screenshot. Older runs without step-specific
-  // proof should say so instead of presenting the confirmation screen again.
-  const currentScreenshot = stepScreens.at(-1);
+  const runScreens = run?.evidence.filter((artifact) => artifact.kind === "screenshot" && !artifact.metadata.proof_overlay) || [];
+  const stepScreens = runScreens.filter((artifact) => !selectedStep || artifact.step_id === selectedStep);
+  const currentScreenshot = stepScreens.at(-1) || runScreens.filter((artifact) => artifact.step_id === "order-confirmed").at(-1) || runScreens.at(-1);
   const [baselineArtifacts, setBaselineArtifacts] = useState<Artifact[]>([]);
   useEffect(() => {
     if (!run?.baseline_run_id) { setBaselineArtifacts([]); return; }
     fetch(`${API}/api/runs/${run.id}/evidence`).then((response) => response.json()).then((data) => setBaselineArtifacts(data.baseline_artifacts || [])).catch(() => setBaselineArtifacts([]));
   }, [run?.id, run?.baseline_run_id]);
-  const baselineScreenshot = baselineArtifacts.filter((artifact) => artifact.kind === "screenshot" && artifact.step_id === (selectedStep || "order-confirmed")).at(-1);
+  const baselineScreens = baselineArtifacts.filter((artifact) => artifact.kind === "screenshot" && !artifact.metadata.proof_overlay);
+  const baselineScreenshot = baselineScreens.filter((artifact) => artifact.step_id === (selectedStep || "order-confirmed")).at(-1) || baselineScreens.filter((artifact) => artifact.step_id === "order-confirmed").at(-1) || baselineScreens.at(-1);
   const gate = run?.gate?.status || (run?.status === "RUNNING" ? "RUNNING" : "PENDING");
 
   return (
