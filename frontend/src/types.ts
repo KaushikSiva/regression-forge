@@ -80,6 +80,14 @@ export interface Deployment {
   commit_sha: string;
   storefront_url: string;
   api_url: string;
+  repository?: string;
+  repository_provider: "github" | "gitlab" | "local";
+  default_branch: string;
+  pull_request_number?: number;
+  pull_request_url?: string;
+  base_sha?: string;
+  head_sha?: string;
+  changed_files: string[];
   created_at: string;
 }
 
@@ -97,4 +105,3 @@ export interface Overview {
   runs: Run[];
   latest_run?: Run;
 }
-

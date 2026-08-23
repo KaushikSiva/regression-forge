@@ -29,6 +29,8 @@ class Settings:
     claude_mem_url: str = os.getenv("CLAUDE_MEM_URL", "")
     codex_enabled: bool = os.getenv("CODEX_ENABLED", "false").lower() == "true"
     codex_model: str = os.getenv("CODEX_MODEL", "gpt-5.6-terra")
+    ci_webhook_token: str = os.getenv("REGRESSIONFORGE_CI_TOKEN", "")
+    evidence_room_url: str = os.getenv("EVIDENCE_ROOM_URL", "http://localhost:4410")
     repo_path: Path = Path(
         os.getenv("TARGET_REPOSITORY", "/workspace/regressionforge-demo-store")
     )

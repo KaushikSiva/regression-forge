@@ -195,12 +195,14 @@ class Runner:
                 f"{result.step_name} {result.summary}" for result in run.step_results if result.status in {ResultStatus.FAILED, ResultStatus.ERROR}
             ) or "checkout order email webhook observability"
             with self.telemetry.span("greptile.context", {"regression.run_id": run.id}):
-                source_context, greptile_state = await self.greptile.repository_context(failed_text[:200])
+                source_context, greptile_state = await self.greptile.repository_context(
+                    failed_text[:200], deployment
+                )
                 run.integration_status["greptile"] = greptile_state
                 if source_context:
                     source_artifact = writer.json(
                         kind="source",
-                        label="Greptile knowledge-base context",
+                        label="Greptile pull-request context",
                         filename="greptile-context.json",
                         data=source_context,
                     )
@@ -848,6 +850,8 @@ class Runner:
         raise StepFailure(f"Unsupported approved step type: {step.type}")
 
     async def _changed_files(self, deployment: Deployment) -> list[str]:
+        if deployment.changed_files:
+            return deployment.changed_files[:20]
         repo = self.settings.repo_path
         if not (repo / ".git").exists():
             candidate = repo / "backend/forgecart/contracts" / f"{deployment.version.split('-')[-1]}.py"

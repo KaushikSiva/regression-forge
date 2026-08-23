@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import settings
 from .models import (
+    CICertificationRequest,
     Deployment,
     DeploymentWebhookRequest,
     Project,
@@ -24,6 +25,7 @@ from .models import (
     now,
 )
 from .runner import RunBroker, Runner
+from .security import valid_bearer_token
 from .storage import Store
 from .workflows import DEFAULT_OUTCOME, purchase_workflow
 
@@ -165,6 +167,64 @@ def deployment_webhook(request: DeploymentWebhookRequest) -> Deployment:
     return deployment
 
 
+def approved_version_for(deployment: Deployment, requested_id: str | None) -> WorkflowVersion | None:
+    if requested_id:
+        version = store.get("workflow_version", requested_id, WorkflowVersion)
+        workflow = store.get("workflow", version.workflow_id, Workflow) if version else None
+        return (
+            version
+            if version and version.approved and workflow and workflow.project_id == deployment.project_id
+            else None
+        )
+    workflow = next((item for item in store.workflows() if item.project_id == deployment.project_id), None)
+    if not workflow or not workflow.current_version_id:
+        return None
+    version = store.get("workflow_version", workflow.current_version_id, WorkflowVersion)
+    return version if version and version.approved else None
+
+
+def queue_run(deployment: Deployment, version: WorkflowVersion) -> RegressionRun:
+    run = RegressionRun(
+        project_id=deployment.project_id,
+        deployment_id=deployment.id,
+        workflow_version_id=version.id,
+    )
+    store.save("run", run)
+    task = asyncio.create_task(runner.execute(run.id), name=f"regression-run-{run.id}")
+    running_tasks.add(task)
+    task.add_done_callback(running_tasks.discard)
+    return run
+
+
+@app.post("/api/ci/certifications", status_code=status.HTTP_202_ACCEPTED)
+async def ci_certification(
+    request: CICertificationRequest,
+    response: Response,
+    authorization: str = Header(default=""),
+) -> dict:
+    if not settings.ci_webhook_token:
+        raise HTTPException(status_code=503, detail="CI certification endpoint is not configured")
+    if not valid_bearer_token(authorization, settings.ci_webhook_token):
+        raise HTTPException(status_code=401, detail="Invalid CI bearer token")
+    if not store.get("project", request.project_id, Project):
+        raise HTTPException(status_code=404, detail="Project not found")
+    deployment = Deployment(**request.model_dump(exclude={"workflow_version_id"}))
+    version = approved_version_for(deployment, request.workflow_version_id)
+    if not version:
+        raise HTTPException(status_code=409, detail="An approved workflow version is required")
+    store.save("deployment", deployment)
+    run = queue_run(deployment, version)
+    response.headers["Location"] = f"/api/runs/{run.id}"
+    return {
+        "deployment_id": deployment.id,
+        "run_id": run.id,
+        "status": run.status,
+        "run_url": f"/api/runs/{run.id}",
+        "events_url": f"/api/runs/{run.id}/events",
+        "evidence_room_url": f"{settings.evidence_room_url.rstrip('/')}?run={run.id}",
+    }
+
+
 @app.post("/api/webhooks/fulfillment", status_code=status.HTTP_202_ACCEPTED)
 async def fulfillment_webhook(
     request: Request,
@@ -181,24 +241,10 @@ async def create_run(request: RunRequest, response: Response) -> dict:
     deployment = store.get("deployment", request.deployment_id, Deployment)
     if not deployment:
         raise HTTPException(status_code=404, detail="Deployment not found")
-    version: WorkflowVersion | None = None
-    if request.workflow_version_id:
-        version = store.get("workflow_version", request.workflow_version_id, WorkflowVersion)
-    else:
-        workflow = next((item for item in store.workflows() if item.project_id == deployment.project_id), None)
-        if workflow and workflow.current_version_id:
-            version = store.get("workflow_version", workflow.current_version_id, WorkflowVersion)
-    if not version or not version.approved:
+    version = approved_version_for(deployment, request.workflow_version_id)
+    if not version:
         raise HTTPException(status_code=409, detail="An approved workflow version is required")
-    run = RegressionRun(
-        project_id=deployment.project_id,
-        deployment_id=deployment.id,
-        workflow_version_id=version.id,
-    )
-    store.save("run", run)
-    task = asyncio.create_task(runner.execute(run.id), name=f"regression-run-{run.id}")
-    running_tasks.add(task)
-    task.add_done_callback(running_tasks.discard)
+    run = queue_run(deployment, version)
     response.headers["Location"] = f"/api/runs/{run.id}"
     return {
         "run_id": run.id,

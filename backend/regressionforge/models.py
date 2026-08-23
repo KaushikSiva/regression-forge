@@ -68,6 +68,14 @@ class Deployment(BaseModel):
     commit_sha: str
     storefront_url: str
     api_url: str
+    repository: str | None = None
+    repository_provider: Literal["github", "gitlab", "local"] = "local"
+    default_branch: str = "main"
+    pull_request_number: int | None = Field(default=None, ge=1)
+    pull_request_url: str | None = None
+    base_sha: str | None = None
+    head_sha: str | None = None
+    changed_files: list[str] = Field(default_factory=list, max_length=100)
     created_at: datetime = Field(default_factory=now)
 
 
@@ -214,4 +222,15 @@ class DeploymentWebhookRequest(BaseModel):
     commit_sha: str
     storefront_url: str
     api_url: str
+    repository: str | None = None
+    repository_provider: Literal["github", "gitlab", "local"] = "local"
+    default_branch: str = "main"
+    pull_request_number: int | None = Field(default=None, ge=1)
+    pull_request_url: str | None = None
+    base_sha: str | None = None
+    head_sha: str | None = None
+    changed_files: list[str] = Field(default_factory=list, max_length=100)
 
+
+class CICertificationRequest(DeploymentWebhookRequest):
+    workflow_version_id: str | None = None

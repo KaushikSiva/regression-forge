@@ -40,11 +40,13 @@ services:
       CLAUDE_MEM_URL: ${CLAUDE_MEM_URL:-}
       CODEX_ENABLED: ${CODEX_ENABLED:-false}
       CODEX_MODEL: ${CODEX_MODEL:-gpt-5.6-terra}
+      REGRESSIONFORGE_CI_TOKEN: ${REGRESSIONFORGE_CI_TOKEN:-}
+      EVIDENCE_ROOM_URL: ${EVIDENCE_ROOM_URL:-http://localhost:4410}
       ENABLE_DEMO_DEPLOYMENTS: "false"
     volumes:
       - regressionforge-data:/data
       - regressionforge-artifacts:/artifacts
-      - ../regressionforge-demo-store:/workspace/regressionforge-demo-store:ro
+      - ${FORGECART_SOURCE_DIR:-../regressionforge-demo-store}:/workspace/regressionforge-demo-store:ro
     depends_on:
       mailpit:
         condition: service_healthy
@@ -61,7 +63,7 @@ services:
 
   forgecart-api:
     build:
-      context: ../regressionforge-demo-store/backend
+      context: ${FORGECART_SOURCE_DIR:-../regressionforge-demo-store}/backend
     init: true
     ports:
       - "4301:8000"
@@ -83,7 +85,7 @@ services:
 
   forgecart-web:
     build:
-      context: ../regressionforge-demo-store/frontend
+      context: ${FORGECART_SOURCE_DIR:-../regressionforge-demo-store}/frontend
       args:
         VITE_API_URL: ""
     ports:

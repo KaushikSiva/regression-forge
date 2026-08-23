@@ -62,6 +62,7 @@ POST /api/workflows/draft
 POST /api/workflows/{version_id}/approve
 GET  /api/workflows
 POST /api/deployments/webhook
+POST /api/ci/certifications             # authenticated register + run for GitHub CI
 POST /api/runs                         # 202 Accepted
 GET  /api/runs/{id}
 GET  /api/runs/{id}/events            # server-sent events
@@ -69,6 +70,38 @@ GET  /api/runs/{id}/evidence
 GET  /api/runs/{id}/diagnosis
 POST /api/demo/deploy/{good|broken|fixed}
 ```
+
+## GitHub pull-request gate
+
+ForgeCart includes a self-hosted GitHub Actions workflow that deploys the exact PR head revision into the local evidence stack and makes the deterministic RegressionForge gate the job result.
+
+1. Put a long random shared value in this repository's ignored `.env`:
+
+   ```env
+   REGRESSIONFORGE_CI_TOKEN=replace-with-a-long-random-value
+   GREPTILE_API_KEY=replace-with-your-organization-api-key
+   GREPTILE_REPOSITORY=owner/regressionforge-demo-store
+   CLAUDE_MEM_URL=http://host.docker.internal:37777
+   ```
+
+   Keep the existing SigNoz settings in the same file. Recreate the API after changing it with `docker compose up -d --build --force-recreate regressionforge-api`.
+
+2. Register a GitHub self-hosted runner that can access Docker and this checkout. In the ForgeCart repository, configure:
+
+   - Variable `REGRESSIONFORGE_HOME` with the absolute path to this repository.
+   - Optional variable `REGRESSIONFORGE_API_URL`; an empty value uses `http://localhost:4400`.
+   - Secret `REGRESSIONFORGE_CI_TOKEN` with the exact value from the local `.env`.
+
+3. Install Greptile for the ForgeCart repository and enable indexing. Install Claude-Mem with `npx claude-mem install`, then expose its worker only to the Docker host connection configured above.
+
+4. From this repository run:
+
+   ```bash
+   make pr-broken
+   make pr-fixed
+   ```
+
+The first command opens an incompatible PR whose deployment check should fail. Leave it unmerged. The second opens a safe replacement PR from `main` whose check should pass. GitHub receives no Greptile or Claude-Mem credentials: those integrations remain on the RegressionForge host, while Actions receives only the narrowly scoped certification token.
 
 The demo deployment endpoint is disabled in Docker by default. When enabled for a trusted local host process, it invokes only `scripts/deploy.py` with one of three enumerated release values. It never accepts a command or argument vector from the request.
 
@@ -147,4 +180,3 @@ Targeted unit tests cover workflow hashing, tamper detection, gate precedence, m
 - Render blueprints demonstrate remote-target support. Local Docker remains the judging path because it owns SMTP, webhook, telemetry, and release switching deterministically.
 
 See [docs/DEMO.md](docs/DEMO.md) for the presentation script and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the evidence flow.
-

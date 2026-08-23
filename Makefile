@@ -1,4 +1,4 @@
-.PHONY: demo up down deploy-good deploy-broken deploy-fixed test signoz-up
+.PHONY: demo up down deploy-good deploy-broken deploy-fixed test signoz-up pr-broken pr-fixed
 
 demo:
 	docker compose up -d --build
@@ -29,3 +29,8 @@ test:
 signoz-up:
 	foundryctl cast -f observability/casting.yaml
 
+pr-broken:
+	../regressionforge-demo-store/scripts/create-broken-pr.sh
+
+pr-fixed:
+	../regressionforge-demo-store/scripts/create-fixed-pr.sh

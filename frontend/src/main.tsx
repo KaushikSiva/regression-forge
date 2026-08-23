@@ -171,7 +171,10 @@ function App() {
     if (nextRun && !selectedStep) setSelectedStep(nextRun.step_results.find((step) => step.status === "FAILED")?.step_id || nextRun.step_results.at(-1)?.step_id);
   }, [selectedStep]);
 
-  useEffect(() => { refresh().catch((error) => setMessage(error.message)); }, []);
+  useEffect(() => {
+    const requestedRun = new URLSearchParams(window.location.search).get("run") || undefined;
+    refresh(requestedRun).catch((error) => setMessage(error.message));
+  }, []);
 
   useEffect(() => {
     if (!run || run.completed_at) return;
