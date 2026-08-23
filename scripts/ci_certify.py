@@ -35,8 +35,9 @@ def request_json(
     except HTTPError as error:
         detail = error.read().decode(errors="replace")
         raise RuntimeError(f"RegressionForge returned HTTP {error.code}: {detail}") from error
-    except URLError as error:
-        raise RuntimeError(f"Could not reach RegressionForge at {url}: {error.reason}") from error
+    except (URLError, OSError) as error:
+        reason = getattr(error, "reason", str(error))
+        raise RuntimeError(f"Could not reach RegressionForge at {url}: {reason}") from error
 
 
 def wait_for_health(url: str, attempts: int = 90) -> None:
