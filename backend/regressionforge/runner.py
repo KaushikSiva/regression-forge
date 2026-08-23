@@ -168,9 +168,7 @@ class Runner:
         ):
             run.trace_id = self.telemetry.trace_id()
             with self.telemetry.span("memory.recall", {"regression.run_id": run.id}):
-                matches, memory_state = await self.memory.recall(
-                    f"ForgeCart checkout {deployment.version} {version.outcome}"
-                )
+                matches, memory_state = await self.memory.recall("RegressionForge PASS")
                 run.memory_matches = matches
                 run.integration_status["claude_mem_recall"] = memory_state
                 if matches:

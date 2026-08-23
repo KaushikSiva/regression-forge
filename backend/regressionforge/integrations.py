@@ -379,6 +379,9 @@ class CodexDiagnoser:
             from openai_codex import AsyncCodex, Sandbox
 
             async with AsyncCodex() as codex:
+                api_key = os.getenv("OPENAI_API_KEY", "").strip()
+                if api_key:
+                    await codex.login_api_key(api_key)
                 thread = await codex.thread_start(
                     model=self.model,
                     sandbox=Sandbox.read_only,
