@@ -1,190 +1,208 @@
+<div align="center">
+
 # RegressionForge
 
-> Evidence, not hope, after every deploy.
+### Evidence, not hope, after every deploy.
 
-RegressionForge runs an approved, versioned customer journey against a deployment and returns a deterministic `PASS`, `FAIL`, or `NEEDS_REVIEW` backed by artifacts from the browser, API, email, webhook receiver, telemetry, repository context, and persistent memory.
+**An autonomous post-deployment regression gate that proves a release works across the browser, APIs, email, webhooks, logs, code, and historical memory.**
 
-This repository is independent from the target application in `../regressionforge-demo-store`. No InflationForge or RobotForge source is modified.
+[Live evidence room](https://regressionforge-evidence-room.onrender.com) · [Try ForgeCart](https://forgecart-storefront.onrender.com) · [Architecture](docs/ARCHITECTURE.md) · [Cloud deployment](docs/RENDER_CLOUD.md)
 
-## Three-minute demo
+![PR gate](https://img.shields.io/badge/PR_gate-PASS_%7C_FAIL_%7C_NEEDS_REVIEW-9BEC32?style=flat-square)
+![Checks](https://img.shields.io/badge/deterministic_checks-11-9BEC32?style=flat-square)
+![Playwright](https://img.shields.io/badge/browser-Playwright-2EAD33?style=flat-square&logo=playwright&logoColor=white)
+![OpenTelemetry](https://img.shields.io/badge/traces-OpenTelemetry-F5A800?style=flat-square&logo=opentelemetry&logoColor=white)
+![Render](https://img.shields.io/badge/cloud-Render-000000?style=flat-square&logo=render&logoColor=white)
 
-Requirements: Docker Desktop with at least 4 GB available, Python 3.12, and ports `4301`, `4310`, `4400`, `4410`, `8025`, and `1025` free.
+</div>
+
+![RegressionForge failed deployment evidence room showing the correlated SigNoz error log](docs/assets/evidence-room-fail.png)
+
+<p align="center"><sub>Actual cloud run: checkout returned 500, six required checks failed, SigNoz found the correlated contract error, and Claude-Mem recalled two passing baselines.</sub></p>
+
+## A green deploy is not proof
+
+Most deployment checks stop at “the server returned 200.” RegressionForge certifies the outcome a customer and the business actually care about:
+
+```text
+Can a customer buy the product?
+Was the order persisted?
+Did the email arrive?
+Was fulfillment notified?
+Did this exact run emit an error?
+```
+
+Developers describe the outcome once. RegressionForge turns it into an approved, versioned workflow, runs it against every candidate deployment, and returns an evidence-backed `PASS`, `FAIL`, or `NEEDS_REVIEW`.
+
+## Why it is different
+
+| Typical E2E runner | RegressionForge |
+|---|---|
+| Checks the browser | Correlates browser, API, SMTP, webhook, logs, traces, source, and memory |
+| Leaves screenshots in CI artifacts | Builds a run-scoped release certificate with a visual evidence room |
+| Retries until green | Uses deterministic required checks and GlassKit's repeated-trial stability gate |
+| Lets AI decide what happened | Finalizes the gate first; Codex can explain evidence but cannot override it |
+| Treats missing telemetry as success | Returns `NEEDS_REVIEW` when required observability proof is unavailable |
+| Rediscovers every incident | Claude-Mem recalls real passing baselines and related observations |
+
+## From pull request to certificate
+
+```mermaid
+flowchart LR
+    PR[Pull request] --> CI[GitHub Actions]
+    CI --> SHA[Deploy exact PR SHA to Render]
+    SHA --> WF[Approved workflow version]
+    WF --> PW[Playwright journey]
+    PW --> SIDE[API · email · webhook]
+    SIDE --> LOGS[SigNoz correlated logs]
+    LOGS --> GATE{Deterministic gate}
+    GATE -->|PASS| GREEN[Deployment certified]
+    GATE -->|FAIL| RED[PR blocked]
+    GATE -->|missing proof| REVIEW[Needs review]
+    MEM[Claude-Mem baseline] --> GATE
+    CODE[Greptile + Codex diagnosis] --> RED
+```
+
+Every artifact carries the same run ID, deployment version, commit SHA, and trace context. The verdict is reproducible policy—not an LLM opinion.
+
+## Run the cloud demo from your Mac
+
+The hosted stack is already CI/CD integrated. The Mac only creates the pull requests:
 
 ```bash
+git clone https://github.com/KaushikSiva/demo-ecom-store.git
+cd demo-ecom-store
+
+./scripts/create-good-pr.sh     # establishes a passing baseline
+./scripts/create-broken-pr.sh   # real checkout contract regression → FAIL
+./scripts/create-fixed-pr.sh    # backwards-compatible repair → PASS
+```
+
+Each script creates a branch, commits one focused contract change, pushes it, and opens a PR. GitHub Actions then deploys that exact head SHA to Render and blocks on RegressionForge.
+
+The regression is deliberately real: the storefront submits `total_cents`, while the broken backend requires `amount_cents`. Checkout returns HTTP 500, so no order, email, or webhook can exist—and SigNoz captures the correlated validation error.
+
+## See the proof
+
+| Run | What to inspect |
+|---|---|
+| [Passing certificate](https://regressionforge-evidence-room.onrender.com/?run=run_45ec3e828154) | All 11 checks pass; step 9 shows the actual confirmation email in Mailpit |
+| [Failed certificate](https://regressionforge-evidence-room.onrender.com/?run=run_72b7959aab8d) | Checkout 500, missing downstream effects, SigNoz error, Codex diagnosis, and recalled baselines |
+| [ForgeCart](https://forgecart-storefront.onrender.com) | The real target storefront driven by Playwright |
+
+<details>
+<summary><strong>Passing email evidence</strong></summary>
+
+![RegressionForge passing deployment showing Mailpit confirmation email evidence](docs/assets/evidence-room-pass.png)
+
+</details>
+
+## The evidence contract
+
+| Layer | Required proof |
+|---|---|
+| Browser | Screenshots per step, WebM recording, Playwright trace, console errors |
+| Network | Correlated request/response records, status codes, redacted payloads |
+| API | The created order exists under the same run ID |
+| Email | Mailpit contains the real SMTP message for the run |
+| Webhook | The fulfillment receiver contains the correlated event |
+| Observability | SigNoz query and UI capture for the deployment version and run ID |
+| Visual stability | GlassKit evaluates approved checkpoints across repeated trials |
+| Source context | Greptile returns PR, review, and impacted-code context when available |
+| Diagnosis | Codex cites supplied evidence and changed files from a read-only sandbox |
+| Memory | Claude-Mem saves certifications and returns real observation IDs on recall |
+
+No visible result is hard-coded. External services have explicit `COMPLETE`, `PARTIAL`, `UNAVAILABLE`, and `NOT_CONFIGURED` states; an unavailable integration never fabricates success.
+
+## Run locally
+
+Requirements: Docker Desktop with at least 4 GB available, Python 3.12+, and ports `4301`, `4310`, `4400`, `4410`, `8025`, and `1025` free.
+
+Clone [ForgeCart](https://github.com/KaushikSiva/demo-ecom-store) beside this repository, then:
+
+```bash
+git clone https://github.com/KaushikSiva/regression-forge.git
+git clone https://github.com/KaushikSiva/demo-ecom-store.git
+cd regression-forge
+
 make demo
 ```
 
-Open the evidence room at <http://localhost:4410>. The first run exercises the good ForgeCart release and creates the passing screenshot baseline.
-
-Then run the regression sequence:
+Open <http://localhost:4410>, then run the complete regression loop:
 
 ```bash
 make deploy-broken
 make deploy-fixed
 ```
 
-Each deployment command recreates the ForgeCart API container with an allowlisted release, registers a real deployment record, and queues a certification run. The broken release changes the backend checkout contract from `total_cents` to `amount_cents`; the unchanged storefront therefore receives HTTP 500. Because checkout stops before side effects, the correlated order, email, and fulfillment webhook checks also fail.
-
-The fixed release accepts both field names and returns the same immutable workflow version to `PASS`.
-
 ```text
 good deploy   → browser + order + email + webhook + logs → PASS
-broken deploy → checkout 500 → missing downstream evidence → FAIL
-fixed deploy  → same workflow hash, restored contract     → PASS
+broken deploy → checkout 500 → missing downstream proof  → FAIL
+fixed deploy  → identical workflow hash, restored API    → PASS
 ```
 
-## What is real
+## Architecture
 
-- The UI journey is executed by Chromium through Playwright. Screenshots, WebM video, a Playwright trace, console errors, and network exchanges are saved under the same run ID.
-- ForgeCart persists orders to SQLite, sends SMTP mail to Mailpit, and posts to a real HTTP webhook receiver.
-- Request correlation propagates `x-regressionforge-run-id`, `x-deployment-version`, and W3C trace context.
-- Gate decisions are pure policy over required step results. A diagnosis cannot change them.
-- GlassKit Eval is pinned and built into the runner image; it evaluates the browser recording three times with a zero-flake stability gate.
-- SigNoz can receive OTLP traces and answer log queries. When it is absent, the local demo can use the same structured OTel audit; setting `ALLOW_LOCAL_OTEL_AUDIT=false` proves that missing observability evidence yields `NEEDS_REVIEW`.
-- Greptile, Codex, and Claude-Mem return explicit integration states. No fallback labels itself as those services and no missing service produces invented observations.
+The system has two independent repositories:
 
-## Services
+- **RegressionForge** — workflow models, Playwright runner, deterministic gate, evidence storage, integrations, API, and evidence-room UI.
+- **[ForgeCart](https://github.com/KaushikSiva/demo-ecom-store)** — React storefront, FastAPI checkout service, SQLite orders, SMTP, webhook delivery, OpenTelemetry, and the good/broken/fixed contracts.
 
-| Surface | URL | Purpose |
-|---|---|---|
-| Evidence room | <http://localhost:4410> | Deployment verdict and live evidence |
-| RegressionForge API | <http://localhost:4400/docs> | Workflows, deployments, runs, SSE, artifacts |
-| ForgeCart | <http://localhost:4310> | Target storefront |
-| ForgeCart API | <http://localhost:4301/docs> | Orders, checkout, correlated local telemetry |
-| Mailpit | <http://localhost:8025> | Delivered confirmation emails |
+The cloud path runs on Render with persistent storage for RegressionForge, ForgeCart, Mailpit, Claude-Mem, Postgres, Valkey, ClickHouse, and SigNoz. GitHub-hosted Actions deploy candidate SHAs; no self-hosted runner is required.
+
+### Trust boundaries
+
+- Workflows use nine allowlisted declarative step types; generated Python or JavaScript is never executed.
+- A human approves an immutable workflow version whose canonical JSON is hashed.
+- Authorization headers, cookies, tokens, API keys, and common secret forms are redacted before persistence and exposure.
+- Codex runs with `Sandbox.read_only` and receives a redacted evidence bundle.
+- Greptile output is untrusted context, never executable instruction.
+- `FAIL` takes precedence over `NEEDS_REVIEW`; otherwise missing required evidence prohibits `PASS`.
 
 ## API
-
-Core endpoints:
 
 ```text
 POST /api/workflows/draft
 POST /api/workflows/{version_id}/approve
 GET  /api/workflows
-POST /api/deployments/webhook
-POST /api/ci/certifications             # authenticated register + run for GitHub CI
+POST /api/ci/certifications
 POST /api/runs                         # 202 Accepted
 GET  /api/runs/{id}
 GET  /api/runs/{id}/events            # server-sent events
 GET  /api/runs/{id}/evidence
 GET  /api/runs/{id}/diagnosis
-POST /api/demo/deploy/{good|broken|fixed}
 ```
 
-## GitHub pull-request gate
+Explore the hosted [OpenAPI documentation](https://regressionforge-api.onrender.com/docs).
 
-ForgeCart's GitHub-hosted Actions workflow deploys the exact pull-request head
-SHA to the two Render candidate services and uses the deterministic
-RegressionForge verdict as the job result. The Mac is only used to open the
-three demo PRs:
+## Stack
 
-```bash
-cd ../regressionforge-demo-store
-./scripts/create-good-pr.sh
-./scripts/create-broken-pr.sh
-./scripts/create-fixed-pr.sh
-```
+**React + Vite** · **FastAPI + Pydantic** · **Playwright** · **GlassKit Eval** · **OpenTelemetry + SigNoz** · **Mailpit** · **Greptile MCP** · **OpenAI Codex SDK** · **Claude-Mem** · **Docker** · **Render** · **GitHub Actions**
 
-No self-hosted runner or `REGRESSIONFORGE_HOME` path is required. Render hosts
-ForgeCart, Mailpit, SigNoz, RegressionForge, and Claude-Mem; Greptile remains a
-hosted GitHub integration installed only for ForgeCart. See
-[docs/RENDER_CLOUD.md](docs/RENDER_CLOUD.md) for the exact Blueprint order,
-secrets, service IDs, sizing, bootstrap commands, rollback, and cleanup.
-
-The demo deployment endpoint is disabled in Docker by default. When enabled for a trusted local host process, it invokes only `scripts/deploy.py` with one of three enumerated release values. It never accepts a command or argument vector from the request.
-
-## Optional integrations
-
-Copy `.env.example` to `.env` and configure only the integrations you have. The local deterministic run works without them.
-
-### SigNoz
-
-Current SigNoz self-hosting uses Foundry. Install `foundryctl`, then:
-
-```bash
-make signoz-up
-```
-
-The checked-in `observability/casting.yaml` produces the supported Docker Compose deployment. Point the app containers at the host OTLP receiver and query service:
-
-```dotenv
-OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318
-SIGNOZ_URL=http://host.docker.internal:8080
-ALLOW_LOCAL_OTEL_AUDIT=false
-```
-
-If the query is unavailable, the observability step is `NEEDS_REVIEW`; it never silently passes.
-
-### Codex
-
-RegressionForge uses the official Python Codex SDK (`openai-codex`) and `Sandbox.read_only`. The agent receives only redacted evidence, Greptile output marked as untrusted, and a read-only target repository. Enable it after Codex authentication is available in the runner environment:
-
-```dotenv
-CODEX_ENABLED=true
-CODEX_MODEL=gpt-5.6-terra
-CODEX_AUTH_FILE=/absolute/path/to/.codex/auth.json
-```
-
-For the local Docker path, `CODEX_AUTH_FILE` mounts an existing Codex CLI login
-read-only at `/root/.codex/auth.json`. Keep that file outside the repository and
-never commit it. If the login expires, refresh it on the host before recreating
-the API container. The Render service instead uses the server-side
-`OPENAI_API_KEY` requested by the Blueprint.
-
-### Greptile
-
-Install Greptile only for the ForgeCart remote, wait for indexing, and set:
-
-```dotenv
-GREPTILE_API_KEY=...
-GREPTILE_REPOSITORY=KaushikSiva/demo-ecom-store
-```
-
-The client talks to `https://api.greptile.com/mcp` using Streamable HTTP and
-asks for repository context around the changed files. Greptile text is treated
-as untrusted evidence and can enrich diagnosis, never the gate.
-
-### Claude-Mem
-
-The Render Blueprint runs Claude-Mem's real API server and generation worker,
-backed by Postgres and Valkey. After its one-time API-key bootstrap, configure:
-
-```dotenv
-CLAUDE_MEM_URL=http://regressionforge-claude-mem:10000
-CLAUDE_MEM_API_KEY=...
-CLAUDE_MEM_PROJECT_ID=...
-```
-
-RegressionForge writes run summaries through `POST /v1/memories` and recalls
-them through `POST /v1/search`; the UI exposes real observation IDs. A stopped,
-unauthorized, or unconfigured server remains visibly unavailable. Local users
-may still install Claude-Mem interactively with `npx claude-mem install`.
-
-## Development and tests
+## Development
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r backend/requirements.txt pytest
+
 cd frontend && npm install && npm run build
 cd ../backend && playwright install chromium
 cd .. && make test
 ```
 
-Targeted unit tests cover workflow hashing, tamper detection, gate precedence, missing-observability behavior, secret redaction, and all three ForgeCart contracts.
+The test suite covers workflow hashing, tamper detection, gate precedence, missing-observability behavior, secret redaction, integration boundaries, and all three ForgeCart contracts.
 
-## Architecture and trust boundaries
+## Documentation
 
-- Workflow drafts contain only the nine allowlisted step types. Human approval is mandatory and the step content is hashed.
-- Arbitrary generated Python or JavaScript is never executed.
-- Browser/API results and side effects are correlated by the run ID; deployment and trace identifiers are stored alongside them.
-- Evidence is redacted before persistence and API exposure. Authorization, cookies, tokens, API keys, and common secret forms are removed.
-- External failures degrade diagnosis, not deterministic execution. `FAIL` takes precedence over `NEEDS_REVIEW`; otherwise any unavailable required evidence prohibits `PASS`.
-- The Render Blueprints are a complete cloud judging path: exact-SHA candidate
-  deployment, SMTP/UI evidence from Mailpit, telemetry/UI evidence from SigNoz,
-  and persisted memory from Claude-Mem. Local Docker remains available for
-  offline development.
+- [Architecture and evidence flow](docs/ARCHITECTURE.md)
+- [Three-minute demo script](docs/DEMO.md)
+- [Render deployment, sizing, rollback, and cleanup](docs/RENDER_CLOUD.md)
 
-See [docs/RENDER_CLOUD.md](docs/RENDER_CLOUD.md) for cloud setup,
-[docs/DEMO.md](docs/DEMO.md) for the presentation script, and
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the evidence flow.
+---
+
+<div align="center">
+
+**If “deployment succeeded” is not enough proof for your team, star RegressionForge and help build the release evidence layer.**
+
+</div>
