@@ -16,9 +16,9 @@
 
 </div>
 
-![RegressionForge failed deployment evidence room showing the correlated SigNoz error log](docs/assets/evidence-room-fail.png)
+![Step 1 — RegressionForge opens the live ForgeCart storefront](docs/assets/step-01-open-forgecart.png)
 
-<p align="center"><sub>Actual cloud run: checkout returned 500, six required checks failed, SigNoz found the correlated contract error, and Claude-Mem recalled two passing baselines.</sub></p>
+<p align="center"><sub>Step 1 from an actual certified cloud run: Playwright opens the deployed ForgeCart storefront and captures the first run-scoped evidence artifact.</sub></p>
 
 ## A green deploy is not proof
 
@@ -89,6 +89,13 @@ The regression is deliberately real: the storefront submits `total_cents`, while
 | [Passing certificate](https://regressionforge-evidence-room.onrender.com/?run=run_45ec3e828154) | All 11 checks pass; step 9 shows the actual confirmation email in Mailpit |
 | [Failed certificate](https://regressionforge-evidence-room.onrender.com/?run=run_72b7959aab8d) | Checkout 500, missing downstream effects, SigNoz error, Codex diagnosis, and recalled baselines |
 | [ForgeCart](https://forgecart-storefront.onrender.com) | The real target storefront driven by Playwright |
+
+<details>
+<summary><strong>Failed SigNoz evidence</strong></summary>
+
+![RegressionForge failed deployment evidence room showing the correlated SigNoz error log](docs/assets/evidence-room-fail.png)
+
+</details>
 
 <details>
 <summary><strong>Passing email evidence</strong></summary>
