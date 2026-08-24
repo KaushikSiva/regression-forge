@@ -16,9 +16,9 @@
 
 </div>
 
-![Step 1 — RegressionForge opens the live ForgeCart storefront](docs/assets/step-01-open-forgecart.png)
+![RegressionForge Evidence Room with step 1 Open ForgeCart selected](docs/assets/evidence-room-step-01.png)
 
-<p align="center"><sub>Step 1 from an actual certified cloud run: Playwright opens the deployed ForgeCart storefront and captures the first run-scoped evidence artifact.</sub></p>
+<p align="center"><sub>The complete Evidence Room with step 1 selected: current and certified browser proof, deterministic workflow results, and two real Claude-Mem baseline observations.</sub></p>
 
 ## A green deploy is not proof
 
